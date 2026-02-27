@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Repeat Videos
+Comment=Listen to YouTube videos on repeat
+Exec=bash /home/asubium/Desktop/Claude_code/repeat-videos/start.sh
+Icon=multimedia-player
+Terminal=false
+Categories=AudioVideo;

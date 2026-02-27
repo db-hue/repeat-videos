@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Repeat Videos — Listen on Repeat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <!-- Auth0 SPA SDK (PKCE — no client secret in the browser) -->
+  <script src="https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.js"></script>
+  <!-- MongoDB Realm Web SDK -->
+  <script src="https://unpkg.com/realm-web@2.0.0/dist/bundle.iife.js"></script>
+  <style>
+    :root {
+      --bg0: #08080f;
+      --bg1: #111118;
+      --bg2: #1a1a26;
+      --bg3: #24243a;
+      --accent: #7c6af7;
+      --accent2: #a78bfa;
+      --green: #22c55e;
+      --red: #ef4444;
+      --text: #f0f0fa;
+      --muted: #8888aa;
+      --border: #2a2a42;
+      --radius: 14px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg0);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #0f0f1e 0%, #14142a 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 28px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .logo {
+      font-size: 1.7rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+      white-space: nowrap;
+    }
+    .tagline {
+      color: var(--muted);
+      font-size: 0.85rem;
+      flex: 1;
+    }
+
+    /* ── Auth area ── */
+    .auth-area {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+    }
+    .btn-signin {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 8px 18px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.2s;
+    }
+    .btn-signin:hover { background: #6b5ce7; }
+
+    .signin-dropdown {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 210px;
+      z-index: 100;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .signin-dropdown.hidden { display: none; }
+    .dropdown-label {
+      font-size: 0.73rem;
+      color: var(--muted);
+      padding: 2px 4px 4px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .btn-provider {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      text-align: left;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .btn-provider:hover { border-color: var(--accent); background: rgba(124,106,247,0.1); }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .user-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 2px solid var(--accent);
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+    .user-name {
+      font-size: 0.88rem;
+      font-weight: 500;
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .btn-signout {
+      background: transparent;
+      border: 1px solid var(--muted);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn-signout:hover { border-color: var(--red); color: var(--red); }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 30px 20px 60px;
+    }
+
+    /* ── Input bar ── */
+    .input-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+    .url-input {
+      flex: 1;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 13px 18px;
+      font-size: 0.95rem;
+      color: var(--text);
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .url-input:focus { border-color: var(--accent); }
+    .url-input::placeholder { color: var(--muted); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 13px 26px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.2s, transform 0.1s;
+      white-space: nowrap;
+    }
+    .btn-primary:hover { background: #6b5ce7; }
+    .btn-primary:active { transform: scale(0.97); }
+
+    /* ── Player card ── */
+    .player-card {
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      margin-bottom: 28px;
+    }
+    .video-wrap {
+      position: relative;
+      width: 100%;
+      padding-top: 56.25%;
+      background: #000;
+    }
+    #yt-player {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--muted);
+      background: #000;
+    }
+    .placeholder .big-icon { font-size: 3.5rem; }
+    .placeholder p { font-size: 0.9rem; }
+
+    /* ── Player controls bar ── */
+    .player-meta {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .vid-title {
+      flex: 1;
+      font-size: 0.95rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .badge {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .badge b { color: var(--accent2); }
+
+    .btn-sm {
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+      border: 1px solid;
+      white-space: nowrap;
+    }
+    .btn-loop {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: transparent;
+    }
+    .btn-loop.on {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-save {
+      border-color: var(--green);
+      color: var(--green);
+      background: transparent;
+    }
+    .btn-save:hover { background: var(--green); color: #fff; }
+
+    /* ── Library ── */
+    .lib-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .lib-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .btn-danger-ghost {
+      border: 1px solid var(--red);
+      color: var(--red);
+      background: transparent;
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .btn-danger-ghost:hover { background: var(--red); color: #fff; }
+
+    .songs { display: flex; flex-direction: column; gap: 8px; }
+
+    .song-row {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .song-row:hover { border-color: var(--accent); }
+    .song-row.active {
+      border-color: var(--accent);
+      background: rgba(124, 106, 247, 0.12);
+    }
+    .thumb {
+      width: 72px;
+      height: 54px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: var(--bg3);
+      flex-shrink: 0;
+    }
+    .song-info { flex: 1; min-width: 0; }
+    .song-name {
+      font-size: 0.88rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .song-date {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+    .loop-count {
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .loop-count .num {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--accent2);
+    }
+    .loop-count .lbl {
+      font-size: 0.7rem;
+      color: var(--muted);
+      display: block;
+    }
+    .btn-del {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 4px 6px;
+      border-radius: 6px;
+      transition: color 0.2s;
+    }
+    .btn-del:hover { color: var(--red); }
+
+    /* ── Empty state ── */
+    .empty {
+      text-align: center;
+      padding: 44px 20px;
+      color: var(--muted);
+    }
+    .empty .icon { font-size: 2.8rem; margin-bottom: 10px; }
+    .empty p { font-size: 0.9rem; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 22px;
+      right: 22px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 18px;
+      font-size: 0.85rem;
+      transform: translateY(80px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      z-index: 999;
+      pointer-events: none;
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Responsive ── */
+    @media (max-width: 580px) {
+      header { flex-wrap: wrap; gap: 10px; }
+      .tagline { display: none; }
+      .auth-area { margin-left: auto; }
+      .input-row { flex-direction: column; }
+      .player-meta { gap: 8px; }
+      .vid-title { order: -1; width: 100%; }
+      .user-name { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🔁 Repeat Videos</div>
+  <div class="tagline">YouTube videos, on infinite repeat</div>
+  <div class="auth-area" id="authArea">
+    <!-- Filled by initAuth() -->
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- URL Input -->
+  <div class="input-row">
+    <input id="urlInput" class="url-input"
+           placeholder="Paste a YouTube URL or video ID and press Enter…"
+           autocomplete="off" spellcheck="false" />
+    <button class="btn-primary" id="playBtn">▶ Play</button>
+  </div>
+
+  <!-- Player -->
+  <div class="player-card">
+    <div class="video-wrap">
+      <div id="placeholder" class="placeholder">
+        <div class="big-icon">🎵</div>
+        <p>Paste a YouTube link above to start listening on repeat</p>
+      </div>
+      <div id="yt-player"></div>
+    </div>
+    <div class="player-meta">
+      <div class="vid-title" id="vidTitle">No video selected</div>
+      <div class="badge">Session &nbsp;<b id="sessCount">0</b>&nbsp;loops</div>
+      <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;loops</div>
+      <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
+      <button class="btn-sm btn-save" id="saveBtn">＋ Save</button>
+    </div>
+  </div>
+
+  <!-- Library -->
+  <div class="lib-header">
+    <div class="lib-title">📚 My Library</div>
+    <button class="btn-danger-ghost" id="clearBtn">Clear all</button>
+  </div>
+  <div class="songs" id="songs"></div>
+
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- YouTube IFrame API -->
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+// ── Config (public values — no secrets go here) ────────────────────────────
+const AUTH0_DOMAIN    = 'YOUR_AUTH0_DOMAIN';     // e.g. repeat-videos.auth0.com
+const AUTH0_CLIENT_ID = 'YOUR_AUTH0_CLIENT_ID';  // SPA Client ID — not a secret
+const REALM_APP_ID    = 'YOUR_REALM_APP_ID';     // e.g. repeat-videos-xxxxx
+
+// ── State ──────────────────────────────────────────────────────────────────
+let player         = null;
+let ready          = false;
+let looping        = true;
+let curId          = null;
+let curTitle       = '';
+let sessLoops      = 0;
+let currentUser    = null;   // Auth0 user profile
+let realmUser      = null;   // Realm session (null = guest)
+let serverLibCache = null;   // null = guest; object = logged-in cache
+let auth0Client    = null;
+let realmApp       = null;
+
+// ── Realm collection helper ────────────────────────────────────────────────
+const col = () =>
+  realmUser.mongoClient('mongodb-atlas').db('repeat-videos').collection('library');
+
+// ── Storage abstraction ────────────────────────────────────────────────────
+const STORE_KEY = 'repeat-videos_v1';
+
+function loadLib() {
+  if (realmUser && serverLibCache !== null) return serverLibCache;
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function saveLib(lib) {
+  // Only used in guest mode — logged-in path writes to Atlas directly
+  if (realmUser) return;
+  localStorage.setItem(STORE_KEY, JSON.stringify(lib));
+}
+
+// ── Auth UI ────────────────────────────────────────────────────────────────
+function showLoginButtons() {
+  const area = document.getElementById('authArea');
+  area.innerHTML = `
+    <div style="position:relative">
+      <button class="btn-signin" id="signInBtn">Sign In</button>
+      <div class="signin-dropdown hidden" id="signinDropdown">
+        <div class="dropdown-label">Continue with</div>
+        <button class="btn-provider" onclick="loginWith('google-oauth2')">🔵 Google</button>
+        <button class="btn-provider" onclick="loginWith('github')">⚫ GitHub</button>
+        <button class="btn-provider" onclick="loginWith('facebook')">🔵 Facebook</button>
+        <button class="btn-provider" onclick="loginWith('twitter')">🐦 X / Twitter</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('signInBtn').addEventListener('click', e => {
+    e.stopPropagation();
+    document.getElementById('signinDropdown').classList.toggle('hidden');
+  });
+  document.addEventListener('click', closeDropdownOutside);
+}
+
+function closeDropdownOutside(e) {
+  const dd  = document.getElementById('signinDropdown');
+  const btn = document.getElementById('signInBtn');
+  if (dd && !dd.contains(e.target) && e.target !== btn) {
+    dd.classList.add('hidden');
+  }
+}
+
+function showUserInfo(user) {
+  document.removeEventListener('click', closeDropdownOutside);
+  const area   = document.getElementById('authArea');
+  const avatar = user.picture
+    ? `<img class="user-avatar" src="${esc(user.picture)}" alt="" onerror="this.style.display='none'" />`
+    : '';
+  area.innerHTML = `
+    <div class="user-info">
+      ${avatar}
+      <span class="user-name">${esc(user.name || user.email || 'User')}</span>
+      <button class="btn-signout" onclick="logout()">Sign Out</button>
+    </div>
+  `;
+}
+
+async function loginWith(connection) {
+  try {
+    await auth0Client.loginWithRedirect({
+      authorizationParams: { connection },
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    toast('⚠️ Login failed. Please try again.');
+  }
+}
+
+async function logout() {
+  try { await realmApp.currentUser?.logOut(); } catch (_) {}
+  await auth0Client.logout({ logoutParams: { returnTo: window.location.origin } });
+}
+
+// ── Atlas sync ─────────────────────────────────────────────────────────────
+async function loadLibraryFromAtlas() {
+  try {
+    const entries = await col().find({ owner_id: realmUser.id });
+    serverLibCache = {};
+    for (const e of entries) {
+      serverLibCache[e.videoId] = {
+        title:   e.title,
+        loops:   e.loops || 0,
+        addedAt: new Date(e.addedAt).getTime(),
+      };
+    }
+  } catch (err) {
+    console.error('Atlas load failed:', err);
+    serverLibCache = {};
+    toast('⚠️ Could not load library from server.');
+  }
+  renderLib();
+}
+
+async function offerImportFromLocalStorage() {
+  const local = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
+  const count = Object.keys(local).length;
+  if (!count) return;
+  const yes = confirm(
+    `You have ${count} video${count === 1 ? '' : 's'} saved locally. ` +
+    `Import ${count === 1 ? 'it' : 'them'} into your account?`
+  );
+  if (!yes) return;
+  let imported = 0;
+  for (const [videoId, s] of Object.entries(local)) {
+    if (serverLibCache[videoId]) continue;
+    try {
+      await col().insertOne({
+        owner_id: realmUser.id,
+        videoId,
+        title:   s.title || 'Unknown',
+        loops:   s.loops || 0,
+        addedAt: new Date(s.addedAt || Date.now()),
+      });
+      serverLibCache[videoId] = {
+        title: s.title || 'Unknown', loops: s.loops || 0, addedAt: s.addedAt || Date.now(),
+      };
+      imported++;
+    } catch (_) {}
+  }
+  if (imported > 0) {
+    localStorage.removeItem(STORE_KEY);
+    renderLib();
+    toast(`✅ Imported ${imported} video${imported === 1 ? '' : 's'}!`);
+  }
+}
+
+// ── Auth init ──────────────────────────────────────────────────────────────
+async function initAuth() {
+  try {
+    auth0Client = await auth0.createAuth0Client({
+      domain:   AUTH0_DOMAIN,
+      clientId: AUTH0_CLIENT_ID,
+      authorizationParams: {
+        redirect_uri: window.location.origin,
+        audience:     'https://api.repeat-videos.com',
+      },
+    });
+
+    realmApp = new Realm.App({ id: REALM_APP_ID });
+
+    // Handle redirect back from Auth0
+    if (location.search.includes('code=') && location.search.includes('state=')) {
+      await auth0Client.handleRedirectCallback();
+      history.replaceState({}, document.title, '/');
+    }
+
+    const isLoggedIn = await auth0Client.isAuthenticated();
+    if (isLoggedIn) {
+      currentUser = await auth0Client.getUser();
+      const token = await auth0Client.getAccessTokenSilently();
+      const creds = Realm.Credentials.jwt(token);
+      realmUser   = await realmApp.logIn(creds);
+      showUserInfo(currentUser);
+      await loadLibraryFromAtlas();
+      await offerImportFromLocalStorage();
+    } else {
+      showLoginButtons();
+      renderLib(); // guest mode: localStorage
+    }
+  } catch (err) {
+    console.error('Auth init error:', err);
+    // Fall back to guest mode on any auth/SDK error
+    showLoginButtons();
+    renderLib();
+  }
+}
+
+// ── YouTube ID extractor ───────────────────────────────────────────────────
+function extractId(raw) {
+  raw = (raw || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  const pats = [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /youtube\.com\/(?:embed|v|shorts)\/([A-Za-z0-9_-]{11})/,
+  ];
+  for (const p of pats) {
+    const m = raw.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+// ── YouTube IFrame API ─────────────────────────────────────────────────────
+window.onYouTubeIframeAPIReady = function () {
+  ready = true;
+  player = new YT.Player('yt-player', {
+    height: '100%',
+    width:  '100%',
+    playerVars: { rel: 0, modestbranding: 1 },
+    events: {
+      onStateChange: onState,
+      onError:       onPlayerError,
+    },
+  });
+};
+
+function onPlayerError(e) {
+  const reasons = {
+    2:   'Invalid video ID.',
+    5:   'This video cannot play in the HTML5 player.',
+    100: 'Video not found or has been removed from YouTube.',
+    101: 'The video owner has disabled embedding on third-party sites.',
+    150: 'The video owner has disabled embedding on third-party sites.',
+  };
+  const msg          = reasons[e.data] || `Playback error (code ${e.data}).`;
+  const isEmbedBlock = e.data === 101 || e.data === 150;
+  const ph           = document.getElementById('placeholder');
+  ph.style.display   = 'flex';
+  ph.innerHTML = `
+    <div class="big-icon">⚠️</div>
+    <p style="color:#ef4444;font-weight:600;text-align:center;padding:0 20px">${msg}</p>
+    ${isEmbedBlock && curId
+      ? `<a href="https://www.youtube.com/watch?v=${curId}" target="_blank"
+            style="color:var(--accent);font-size:0.85rem;margin-top:6px;text-decoration:none">
+           Open on YouTube ↗
+         </a>`
+      : ''}
+    <p style="font-size:0.78rem;color:var(--muted);margin-top:8px;text-align:center;padding:0 20px">
+      Try a different video — many music videos disable third-party embedding.
+    </p>
+  `;
+  document.getElementById('vidTitle').textContent = '⚠️ Cannot play this video';
+}
+
+function onState(e) {
+  if (e.data === YT.PlayerState.PLAYING) {
+    document.getElementById('placeholder').style.display = 'none';
+    setTimeout(() => {
+      try {
+        const t = player.getVideoData().title;
+        if (t) {
+          curTitle = t;
+          document.getElementById('vidTitle').textContent = t;
+          // Back-fill title if it was saved as 'Unknown'
+          if (realmUser && serverLibCache && serverLibCache[curId]?.title === 'Unknown') {
+            serverLibCache[curId].title = t;
+            col().updateOne(
+              { owner_id: realmUser.id, videoId: curId },
+              { $set: { title: t } }
+            ).catch(() => {});
+          } else if (!realmUser) {
+            const lib = loadLib();
+            if (lib[curId] && lib[curId].title === 'Unknown') {
+              lib[curId].title = t;
+              saveLib(lib);
+              renderLib();
+            }
+          }
+        }
+      } catch (_) {}
+    }, 800);
+  }
+
+  if (e.data === YT.PlayerState.ENDED && looping && curId) {
+    sessLoops++;
+    document.getElementById('sessCount').textContent = sessLoops;
+
+    if (realmUser && serverLibCache && serverLibCache[curId]) {
+      // Logged-in: optimistic UI + fire-and-forget Atlas update
+      serverLibCache[curId].loops = (serverLibCache[curId].loops || 0) + 1;
+      document.getElementById('totalCount').textContent = serverLibCache[curId].loops;
+      col().updateOne(
+        { owner_id: realmUser.id, videoId: curId },
+        { $inc: { loops: 1 } }
+      ).catch(() => {});
+    } else {
+      // Guest path
+      const lib = loadLib();
+      if (lib[curId]) {
+        lib[curId].loops = (lib[curId].loops || 0) + 1;
+        saveLib(lib);
+        document.getElementById('totalCount').textContent = lib[curId].loops;
+      }
+    }
+
+    renderLib();
+    player.seekTo(0);
+    player.playVideo();
+  }
+}
+
+// ── Play video ─────────────────────────────────────────────────────────────
+function playVideo(id) {
+  if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
+  curId     = id;
+  sessLoops = 0;
+  curTitle  = '';
+  document.getElementById('sessCount').textContent = '0';
+
+  const lib   = loadLib();
+  const total = lib[id] ? (lib[id].loops || 0) : 0;
+  document.getElementById('totalCount').textContent = total;
+  document.getElementById('vidTitle').textContent   = lib[id]?.title || 'Loading…';
+
+  const ph = document.getElementById('placeholder');
+  ph.style.display = 'flex';
+  ph.innerHTML = `<div class="big-icon" style="animation:spin 1s linear infinite">⏳</div><p>Loading…</p>`;
+
+  player.loadVideoById(id);
+  renderLib();
+}
+
+// ── UI handlers ────────────────────────────────────────────────────────────
+function handlePlay() {
+  const raw = document.getElementById('urlInput').value;
+  const id  = extractId(raw);
+  if (!id) { toast('⚠️ Could not find a YouTube video ID in that link'); return; }
+  document.getElementById('urlInput').value = '';
+  playVideo(id);
+}
+
+document.getElementById('playBtn').addEventListener('click', handlePlay);
+document.getElementById('urlInput').addEventListener('keypress', e => {
+  if (e.key === 'Enter') handlePlay();
+});
+
+document.getElementById('loopBtn').addEventListener('click', function () {
+  looping = !looping;
+  this.textContent = looping ? '🔁 Loop ON' : '➡️ Loop OFF';
+  this.classList.toggle('on', looping);
+  toast(looping ? 'Loop enabled' : 'Loop disabled');
+});
+
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  if (!curId) { toast('▶ Play a video first'); return; }
+
+  if (realmUser) {
+    // Logged-in path
+    if (serverLibCache[curId]) { toast('Already in your library!'); return; }
+    try {
+      await col().insertOne({
+        owner_id: realmUser.id,
+        videoId:  curId,
+        title:    curTitle || 'Unknown',
+        loops:    0,
+        addedAt:  new Date(),
+      });
+      serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
+      renderLib();
+      toast('✅ Saved to library!');
+    } catch (err) {
+      console.error(err);
+      toast('⚠️ Failed to save. Try again.');
+    }
+  } else {
+    // Guest path
+    const lib = loadLib();
+    if (lib[curId]) { toast('Already in your library!'); return; }
+    lib[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
+    saveLib(lib);
+    renderLib();
+    toast('✅ Saved to library!');
+  }
+});
+
+document.getElementById('clearBtn').addEventListener('click', async () => {
+  if (!confirm('Clear your entire library?')) return;
+
+  if (realmUser) {
+    try {
+      await col().deleteMany({ owner_id: realmUser.id });
+      serverLibCache = {};
+    } catch (err) {
+      toast('⚠️ Failed to clear. Try again.');
+      return;
+    }
+  } else {
+    localStorage.removeItem(STORE_KEY);
+  }
+  renderLib();
+  toast('Library cleared');
+});
+
+// ── Render library ─────────────────────────────────────────────────────────
+function renderLib() {
+  const el   = document.getElementById('songs');
+  const lib  = loadLib();
+  const list = Object.entries(lib).sort((a, b) => b[1].addedAt - a[1].addedAt);
+
+  if (!list.length) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="icon">🎧</div>
+        <p>Songs you save will appear here with their loop counts</p>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = list.map(([id, s]) => `
+    <div class="song-row ${id === curId ? 'active' : ''}" onclick="playVideo('${id}')">
+      <img class="thumb"
+           src="https://img.youtube.com/vi/${id}/mqdefault.jpg"
+           alt=""
+           onerror="this.style.visibility='hidden'" />
+      <div class="song-info">
+        <div class="song-name">${esc(s.title)}</div>
+        <div class="song-date">${fmtDate(s.addedAt)}</div>
+      </div>
+      <div class="loop-count">
+        <span class="num">${s.loops || 0}</span>
+        <span class="lbl">loops</span>
+      </div>
+      <button class="btn-del" onclick="delSong('${id}', event)" title="Remove">✕</button>
+    </div>
+  `).join('');
+}
+
+async function delSong(id, e) {
+  e.stopPropagation();
+  if (realmUser) {
+    try {
+      await col().deleteOne({ owner_id: realmUser.id, videoId: id });
+      delete serverLibCache[id];
+    } catch (err) {
+      toast('⚠️ Failed to remove. Try again.');
+      return;
+    }
+  } else {
+    const lib = loadLib();
+    delete lib[id];
+    saveLib(lib);
+  }
+  renderLib();
+  toast('Removed from library');
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s || '');
+  return d.innerHTML;
+}
+function fmtDate(ts) {
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+initAuth();
+</script>
+</body>
+</html>
