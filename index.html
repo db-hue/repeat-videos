@@ -289,6 +289,71 @@
     }
     .btn-save:hover { background: var(--green); color: #fff; }
 
+    /* ── A/B Loop Bar ── */
+    .ab-bar-wrap {
+      padding: 0 20px 16px;
+    }
+    .ab-bar {
+      position: relative;
+      height: 46px;
+      background: var(--bg3);
+      border-radius: 6px;
+      cursor: crosshair;
+      user-select: none;
+    }
+    .ab-range {
+      position: absolute;
+      inset: 0;
+      background: rgba(124, 106, 247, 0.18);
+      border-top: 2px solid rgba(124, 106, 247, 0.5);
+      border-bottom: 2px solid rgba(124, 106, 247, 0.5);
+      pointer-events: none;
+      border-radius: 6px;
+    }
+    .ab-playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: rgba(255, 255, 255, 0.75);
+      pointer-events: none;
+      border-radius: 1px;
+      left: 0;
+    }
+    .ab-handle {
+      position: absolute;
+      top: -4px;
+      bottom: -4px;
+      width: 24px;
+      transform: translateX(-50%);
+      cursor: ew-resize;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+    .ab-handle::before,
+    .ab-handle::after {
+      content: '';
+      width: 3px;
+      height: 65%;
+      background: var(--accent2);
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .ab-handle:hover::before,
+    .ab-handle:hover::after { background: #fff; }
+    .ab-times {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 5px;
+      font-size: 0.71rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      padding: 0 2px;
+    }
+
     /* ── Library ── */
     .lib-header {
       display: flex;
@@ -449,6 +514,21 @@
       </div>
       <div id="yt-player"></div>
     </div>
+
+    <!-- A/B Loop Timeline -->
+    <div class="ab-bar-wrap">
+      <div class="ab-bar" id="abBar">
+        <div class="ab-range"    id="abRange"></div>
+        <div class="ab-playhead" id="abPlayhead"></div>
+        <div class="ab-handle"   id="handleA"></div>
+        <div class="ab-handle"   id="handleB"></div>
+      </div>
+      <div class="ab-times">
+        <span id="abTimeA">0:00</span>
+        <span id="abTimeB">—</span>
+      </div>
+    </div>
+
     <div class="player-meta">
       <div class="vid-title" id="vidTitle">No video selected</div>
       <div class="badge">Session &nbsp;<b id="sessCount">0</b>&nbsp;loops</div>
@@ -486,6 +566,11 @@ let curId          = null;
 let curTitle       = '';
 let sessLoops      = 0;
 let autoSaved      = false;  // tracks whether current video was auto-saved
+let loopA          = null;   // A point in seconds (null = video start)
+let loopB          = null;   // B point in seconds (null = video end)
+let duration       = 0;      // video duration in seconds
+let abInterval     = null;   // interval for AB loop monitoring
+let rafId          = null;   // requestAnimationFrame id for playhead
 let currentUser    = null;   // Auth0 user profile
 let realmUser      = null;   // Realm session (null = guest)
 let serverLibCache = null;   // null = guest; object = logged-in cache
@@ -582,6 +667,8 @@ async function loadLibraryFromAtlas() {
         title:   e.title,
         loops:   e.loops || 0,
         addedAt: new Date(e.addedAt).getTime(),
+        loopA:   e.loopA ?? null,
+        loopB:   e.loopB ?? null,
       };
     }
   } catch (err) {
@@ -724,33 +811,174 @@ function onPlayerError(e) {
   document.getElementById('vidTitle').textContent = '⚠️ Cannot play this video';
 }
 
+// ── A/B helpers ────────────────────────────────────────────────────────────
+function fmtTime(s) {
+  if (s === null || s === undefined || isNaN(s)) return '—';
+  const m = Math.floor(s / 60);
+  return `${m}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
+}
+
+function updateAbBar() {
+  const pctA = duration > 0 && loopA !== null ? (loopA / duration) * 100 : 0;
+  const pctB = duration > 0 && loopB !== null ? (loopB / duration) * 100 : 100;
+  document.getElementById('handleA').style.left  = `${pctA}%`;
+  document.getElementById('handleB').style.left  = `${pctB}%`;
+  document.getElementById('abRange').style.left  = `${pctA}%`;
+  document.getElementById('abRange').style.right = `${100 - pctB}%`;
+  document.getElementById('abTimeA').textContent = fmtTime(loopA ?? 0);
+  document.getElementById('abTimeB').textContent = duration > 0 ? fmtTime(loopB ?? duration) : '—';
+}
+
+function startProgressUpdate() {
+  stopProgressUpdate();
+  const ph = document.getElementById('abPlayhead');
+  function tick() {
+    if (player && duration > 0) {
+      try { ph.style.left = `${(player.getCurrentTime() / duration) * 100}%`; } catch (_) {}
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+  rafId = requestAnimationFrame(tick);
+}
+
+function stopProgressUpdate() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+}
+
+function countLoop() {
+  sessLoops++;
+  document.getElementById('sessCount').textContent = sessLoops;
+  if (realmUser && serverLibCache && serverLibCache[curId]) {
+    serverLibCache[curId].loops = (serverLibCache[curId].loops || 0) + 1;
+    document.getElementById('totalCount').textContent = serverLibCache[curId].loops;
+    col().updateOne({ owner_id: realmUser.id, videoId: curId }, { $inc: { loops: 1 } }).catch(() => {});
+  } else {
+    const lib = loadLib();
+    if (lib[curId]) {
+      lib[curId].loops = (lib[curId].loops || 0) + 1;
+      saveLib(lib);
+      document.getElementById('totalCount').textContent = lib[curId].loops;
+    }
+  }
+  renderLib();
+}
+
+function startAbMonitor() {
+  stopAbMonitor();
+  if (loopB === null) return;
+  abInterval = setInterval(() => {
+    if (!player || !curId || !looping) return;
+    try {
+      if (player.getCurrentTime() >= loopB - 0.15) {
+        countLoop();
+        player.seekTo(loopA ?? 0, true);
+      }
+    } catch (_) {}
+  }, 200);
+}
+
+function stopAbMonitor() {
+  if (abInterval) { clearInterval(abInterval); abInterval = null; }
+}
+
+function saveAbToLib() {
+  if (!curId) return;
+  if (realmUser && serverLibCache && serverLibCache[curId]) {
+    serverLibCache[curId].loopA = loopA;
+    serverLibCache[curId].loopB = loopB;
+    col().updateOne({ owner_id: realmUser.id, videoId: curId }, { $set: { loopA, loopB } }).catch(() => {});
+  } else if (!realmUser) {
+    const lib = loadLib();
+    if (lib[curId]) { lib[curId].loopA = loopA; lib[curId].loopB = loopB; saveLib(lib); }
+  }
+}
+
+function initAbBar() {
+  const bar = document.getElementById('abBar');
+
+  function pctFromEvent(e) {
+    const rect = bar.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    return Math.max(0, Math.min(1, x / rect.width));
+  }
+
+  function makeDraggable(handle, isA) {
+    let dragging = false;
+    function onDown(e) {
+      if (!duration) return;
+      dragging = true;
+      e.preventDefault();
+      e.stopPropagation();
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+      document.addEventListener('touchmove', onMove, { passive: false });
+      document.addEventListener('touchend',  onUp);
+    }
+    function onMove(e) {
+      if (!dragging) return;
+      e.preventDefault();
+      const t = pctFromEvent(e) * duration;
+      if (isA) {
+        if (loopB !== null && t >= loopB - 1) return;
+        loopA = Math.round(t * 10) / 10;
+      } else {
+        if (loopA !== null && t <= loopA + 1) return;
+        loopB = Math.round(t * 10) / 10;
+      }
+      updateAbBar();
+      startAbMonitor();
+    }
+    function onUp() {
+      if (!dragging) return;
+      dragging = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend',  onUp);
+      saveAbToLib();
+    }
+    handle.addEventListener('mousedown',  onDown);
+    handle.addEventListener('touchstart', onDown, { passive: false });
+  }
+
+  makeDraggable(document.getElementById('handleA'), true);
+  makeDraggable(document.getElementById('handleB'), false);
+
+  // Click bar to seek (not on handles)
+  bar.addEventListener('click', e => {
+    if (!duration || !player) return;
+    if (e.target.classList.contains('ab-handle')) return;
+    player.seekTo(pctFromEvent(e) * duration, true);
+  });
+}
+
 function onState(e) {
   if (e.data === YT.PlayerState.PLAYING) {
     document.getElementById('placeholder').style.display = 'none';
+    // Get duration as soon as we're playing
+    try { if (!duration) { duration = player.getDuration(); updateAbBar(); } } catch (_) {}
+    startProgressUpdate();
+    startAbMonitor();
+
     setTimeout(async () => {
+      // Grab title
       try {
         const t = player.getVideoData().title;
+        if (!duration) { duration = player.getDuration(); updateAbBar(); }
         if (t) {
           curTitle = t;
           document.getElementById('vidTitle').textContent = t;
-          // Back-fill title if it was saved as 'Unknown'
           if (realmUser && serverLibCache && serverLibCache[curId]?.title === 'Unknown') {
             serverLibCache[curId].title = t;
-            col().updateOne(
-              { owner_id: realmUser.id, videoId: curId },
-              { $set: { title: t } }
-            ).catch(() => {});
+            col().updateOne({ owner_id: realmUser.id, videoId: curId }, { $set: { title: t } }).catch(() => {});
           } else if (!realmUser) {
             const lib = loadLib();
-            if (lib[curId] && lib[curId].title === 'Unknown') {
-              lib[curId].title = t;
-              saveLib(lib);
-            }
+            if (lib[curId] && lib[curId].title === 'Unknown') { lib[curId].title = t; saveLib(lib); }
           }
         }
       } catch (_) {}
 
-      // Auto-save on first play if not already in library
+      // Auto-save on first play
       if (!autoSaved && curId) {
         autoSaved = true;
         const lib = loadLib();
@@ -758,18 +986,15 @@ function onState(e) {
           if (realmUser) {
             try {
               await col().insertOne({
-                owner_id: realmUser.id,
-                videoId:  curId,
-                title:    curTitle || 'Unknown',
-                loops:    0,
-                addedAt:  new Date(),
+                owner_id: realmUser.id, videoId: curId,
+                title: curTitle || 'Unknown', loops: 0, addedAt: new Date(), loopA, loopB,
               });
-              serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
+              serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB };
             } catch (_) {}
           } else {
             const lib2 = loadLib();
             if (!lib2[curId]) {
-              lib2[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
+              lib2[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB };
               saveLib(lib2);
             }
           }
@@ -780,30 +1005,15 @@ function onState(e) {
     }, 800);
   }
 
+  if (e.data === YT.PlayerState.PAUSED) {
+    stopProgressUpdate();
+    stopAbMonitor();
+  }
+
   if (e.data === YT.PlayerState.ENDED && looping && curId) {
-    sessLoops++;
-    document.getElementById('sessCount').textContent = sessLoops;
-
-    if (realmUser && serverLibCache && serverLibCache[curId]) {
-      // Logged-in: optimistic UI + fire-and-forget Atlas update
-      serverLibCache[curId].loops = (serverLibCache[curId].loops || 0) + 1;
-      document.getElementById('totalCount').textContent = serverLibCache[curId].loops;
-      col().updateOne(
-        { owner_id: realmUser.id, videoId: curId },
-        { $inc: { loops: 1 } }
-      ).catch(() => {});
-    } else {
-      // Guest path
-      const lib = loadLib();
-      if (lib[curId]) {
-        lib[curId].loops = (lib[curId].loops || 0) + 1;
-        saveLib(lib);
-        document.getElementById('totalCount').textContent = lib[curId].loops;
-      }
-    }
-
-    renderLib();
-    player.seekTo(0);
+    // Only count & loop if no B point (AB monitor handles the B-point case)
+    if (loopB === null) countLoop();
+    player.seekTo(loopA ?? 0, true);
     player.playVideo();
   }
 }
@@ -825,23 +1035,33 @@ function updateSaveBtn() {
 
 function playVideo(id) {
   if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
+  stopProgressUpdate();
+  stopAbMonitor();
+
   curId     = id;
   sessLoops = 0;
   curTitle  = '';
   autoSaved = false;
+  duration  = 0;
   document.getElementById('sessCount').textContent = '0';
+
+  // Restore saved A/B points for this video (or reset)
+  const lib = loadLib();
+  const entry = lib[id];
+  loopA = entry?.loopA ?? null;
+  loopB = entry?.loopB ?? null;
+  updateAbBar();
   updateSaveBtn();
 
-  const lib   = loadLib();
-  const total = lib[id] ? (lib[id].loops || 0) : 0;
+  const total = entry ? (entry.loops || 0) : 0;
   document.getElementById('totalCount').textContent = total;
-  document.getElementById('vidTitle').textContent   = lib[id]?.title || 'Loading…';
+  document.getElementById('vidTitle').textContent   = entry?.title || 'Loading…';
 
   const ph = document.getElementById('placeholder');
   ph.style.display = 'flex';
   ph.innerHTML = `<div class="big-icon" style="animation:spin 1s linear infinite">⏳</div><p>Loading…</p>`;
 
-  player.loadVideoById(id);
+  player.loadVideoById(id, loopA ?? 0);
   renderLib();
 }
 
@@ -990,6 +1210,7 @@ function toast(msg) {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 renderLib();   // render localStorage immediately so library shows while auth loads
+initAbBar();
 initAuth();
 </script>
 </body>
