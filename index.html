@@ -204,7 +204,6 @@
       background: var(--bg1);
       border: 1px solid var(--border);
       border-radius: 20px;
-      overflow: hidden;
       margin-bottom: 28px;
     }
     .video-wrap {
@@ -212,6 +211,8 @@
       width: 100%;
       padding-top: 56.25%;
       background: #000;
+      border-radius: 20px 20px 0 0;
+      overflow: hidden;
     }
     #yt-player {
       position: absolute;
@@ -571,6 +572,7 @@ let loopB          = null;   // B point in seconds (null = video end)
 let duration       = 0;      // video duration in seconds
 let abInterval     = null;   // interval for AB loop monitoring
 let rafId          = null;   // requestAnimationFrame id for playhead
+let pendingAutoPlay = null;  // video ID to play once the YT player is ready
 let currentUser    = null;   // Auth0 user profile
 let realmUser      = null;   // Realm session (null = guest)
 let serverLibCache = null;   // null = guest; object = logged-in cache
@@ -582,7 +584,8 @@ const col = () =>
   realmUser.mongoClient('mongodb-atlas').db('repeat-videos').collection('library');
 
 // ── Storage abstraction ────────────────────────────────────────────────────
-const STORE_KEY = 'repeat-videos_v1';
+const STORE_KEY      = 'repeat-videos_v1';
+const LAST_PLAYED_KEY = 'repeat-videos_last';
 
 function loadLib() {
   if (realmUser && serverLibCache !== null) return serverLibCache;
@@ -741,15 +744,18 @@ async function initAuth() {
       showUserInfo(currentUser);
       await loadLibraryFromAtlas();
       await offerImportFromLocalStorage();
+      tryAutoPlay();
     } else {
       showLoginButtons();
       renderLib(); // guest mode: localStorage
+      tryAutoPlay();
     }
   } catch (err) {
     console.error('Auth init error:', err);
     // Fall back to guest mode on any auth/SDK error
     showLoginButtons();
     renderLib();
+    tryAutoPlay();
   }
 }
 
@@ -777,6 +783,7 @@ window.onYouTubeIframeAPIReady = function () {
     width:  '100%',
     playerVars: { rel: 0, modestbranding: 1 },
     events: {
+      onReady:       () => { if (pendingAutoPlay) { playVideo(pendingAutoPlay); pendingAutoPlay = null; } },
       onStateChange: onState,
       onError:       onPlayerError,
     },
@@ -1061,8 +1068,19 @@ function playVideo(id) {
   ph.style.display = 'flex';
   ph.innerHTML = `<div class="big-icon" style="animation:spin 1s linear infinite">⏳</div><p>Loading…</p>`;
 
+  localStorage.setItem(LAST_PLAYED_KEY, id);
   player.loadVideoById(id, loopA ?? 0);
   renderLib();
+}
+
+function tryAutoPlay() {
+  const lastId = localStorage.getItem(LAST_PLAYED_KEY);
+  if (!lastId) return;
+  if (ready && player) {
+    playVideo(lastId);
+  } else {
+    pendingAutoPlay = lastId;  // player not ready yet; onReady will pick this up
+  }
 }
 
 // ── UI handlers ────────────────────────────────────────────────────────────
