@@ -283,12 +283,27 @@
       background: var(--accent);
       color: #fff;
     }
-    .btn-save {
-      border-color: var(--green);
-      color: var(--green);
+
+    .btn-playlist {
+      border-color: var(--border);
+      color: var(--muted);
       background: transparent;
+      opacity: 0.45;
+      cursor: default;
     }
-    .btn-save:hover { background: var(--green); color: #fff; }
+    .btn-playlist.active {
+      border-color: #f59e0b;
+      color: #f59e0b;
+      opacity: 1;
+      cursor: pointer;
+    }
+    .btn-playlist.on {
+      background: #f59e0b;
+      border-color: #f59e0b;
+      color: #000;
+      opacity: 1;
+      cursor: pointer;
+    }
 
     /* ── A/B Loop Bar ── */
     .ab-bar-wrap {
@@ -535,7 +550,7 @@
       <div class="badge">Session &nbsp;<b id="sessCount">0</b>&nbsp;loops</div>
       <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;loops</div>
       <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
-      <button class="btn-sm btn-save" id="saveBtn">＋ Save</button>
+      <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
     </div>
   </div>
 
@@ -572,7 +587,9 @@ let loopB          = null;   // B point in seconds (null = video end)
 let duration       = 0;      // video duration in seconds
 let abInterval     = null;   // interval for AB loop monitoring
 let rafId          = null;   // requestAnimationFrame id for playhead
-let pendingAutoPlay = null;  // video ID to play once the YT player is ready
+let pendingAutoPlay    = null;  // video ID to play once the YT player is ready
+let currentPlaylistId = null;  // active playlist ID, null = single-video mode
+let playlistMode      = false; // true = advance through playlist, false = loop
 let currentUser    = null;   // Auth0 user profile
 let realmUser      = null;   // Realm session (null = guest)
 let serverLibCache = null;   // null = guest; object = logged-in cache
@@ -600,6 +617,24 @@ function saveLib(lib) {
 }
 
 // ── Auth UI ────────────────────────────────────────────────────────────────
+function showGuestUI() {
+  document.getElementById('authArea').innerHTML = `
+    <div class="user-info">
+      <span style="font-size:1.3rem">👤</span>
+      <span class="user-name" style="color:var(--muted)">Guest</span>
+      <button class="btn-signin" onclick="onSignInClick()">Sign In</button>
+    </div>
+  `;
+}
+
+function onSignInClick() {
+  if (AUTH0_DOMAIN === 'YOUR_AUTH0_DOMAIN' || AUTH0_CLIENT_ID === 'YOUR_AUTH0_CLIENT_ID') {
+    toast('⚙️ Configure Auth0 credentials in index.html to enable login');
+    return;
+  }
+  document.getElementById('signinDropdown')?.classList.toggle('hidden');
+}
+
 function showLoginButtons() {
   const area = document.getElementById('authArea');
   area.innerHTML = `
@@ -717,6 +752,13 @@ async function offerImportFromLocalStorage() {
 
 // ── Auth init ──────────────────────────────────────────────────────────────
 async function initAuth() {
+  // Show guest UI when credentials haven't been configured yet
+  if (AUTH0_DOMAIN === 'YOUR_AUTH0_DOMAIN' || AUTH0_CLIENT_ID === 'YOUR_AUTH0_CLIENT_ID') {
+    showGuestUI();
+    renderLib();
+    tryAutoPlay();
+    return;
+  }
   try {
     auth0Client = await auth0.createAuth0Client({
       domain:   AUTH0_DOMAIN,
@@ -752,14 +794,13 @@ async function initAuth() {
     }
   } catch (err) {
     console.error('Auth init error:', err);
-    // Fall back to guest mode on any auth/SDK error
-    showLoginButtons();
+    showGuestUI();
     renderLib();
     tryAutoPlay();
   }
 }
 
-// ── YouTube ID extractor ───────────────────────────────────────────────────
+// ── YouTube ID extractors ──────────────────────────────────────────────────
 function extractId(raw) {
   raw = (raw || '').trim();
   if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
@@ -775,6 +816,54 @@ function extractId(raw) {
   return null;
 }
 
+function extractPlaylistId(raw) {
+  const m = (raw || '').match(/[?&]list=([A-Za-z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+// ── Playlist ───────────────────────────────────────────────────────────────
+function updatePlaylistBtn() {
+  const btn = document.getElementById('playlistBtn');
+  if (!currentPlaylistId) {
+    btn.classList.remove('active', 'on');
+    btn.textContent = '▶ Playlist';
+    btn.title = 'Paste a playlist URL to enable';
+    return;
+  }
+  btn.classList.add('active');
+  btn.classList.toggle('on', playlistMode);
+  btn.textContent = playlistMode ? '▶ Playlist ON' : '▶ Playlist OFF';
+  btn.title = playlistMode ? 'Click to switch to loop mode' : 'Click to enable playlist mode';
+}
+
+function loadPlaylist(listId) {
+  if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
+  stopProgressUpdate();
+  stopAbMonitor();
+
+  currentPlaylistId = listId;
+  playlistMode      = true;
+  curId     = null;
+  curTitle  = '';
+  autoSaved = false;
+  duration  = 0;
+  loopA     = null;
+  loopB     = null;
+  sessLoops = 0;
+  document.getElementById('sessCount').textContent  = '0';
+  document.getElementById('totalCount').textContent = '0';
+  document.getElementById('vidTitle').textContent   = 'Loading playlist…';
+  updateAbBar();
+  updatePlaylistBtn();
+
+  const ph = document.getElementById('placeholder');
+  ph.style.display = 'flex';
+  ph.innerHTML = `<div class="big-icon" style="animation:spin 1s linear infinite">⏳</div><p>Loading playlist…</p>`;
+
+  player.loadPlaylist({ list: listId, listType: 'playlist', index: 0 });
+  localStorage.setItem(LAST_PLAYED_KEY, 'playlist:' + listId);
+}
+
 // ── YouTube IFrame API ─────────────────────────────────────────────────────
 window.onYouTubeIframeAPIReady = function () {
   ready = true;
@@ -783,7 +872,11 @@ window.onYouTubeIframeAPIReady = function () {
     width:  '100%',
     playerVars: { rel: 0, modestbranding: 1 },
     events: {
-      onReady:       () => { if (pendingAutoPlay) { playVideo(pendingAutoPlay); pendingAutoPlay = null; } },
+      onReady: () => {
+        if (!pendingAutoPlay) return;
+        const p = pendingAutoPlay; pendingAutoPlay = null;
+        p.startsWith('playlist:') ? loadPlaylist(p.slice('playlist:'.length)) : playVideo(p);
+      },
       onStateChange: onState,
       onError:       onPlayerError,
     },
@@ -965,7 +1058,28 @@ function onState(e) {
     // Get duration as soon as we're playing
     try { if (!duration) { duration = player.getDuration(); updateAbBar(); } } catch (_) {}
     startProgressUpdate();
-    startAbMonitor();
+    if (!playlistMode) startAbMonitor();
+
+    // In playlist mode, detect when a new video starts (curId changes)
+    if (playlistMode) {
+      try {
+        const data = player.getVideoData();
+        if (data.video_id && data.video_id !== curId) {
+          curId     = data.video_id;
+          curTitle  = data.title || '';
+          autoSaved = false;
+          duration  = player.getDuration() || 0;
+          loopA = null; loopB = null;
+          sessLoops = 0;
+          document.getElementById('sessCount').textContent = '0';
+          const lib   = loadLib();
+          const entry = lib[curId];
+          document.getElementById('totalCount').textContent = entry?.loops || 0;
+          updateAbBar();
+          localStorage.setItem(LAST_PLAYED_KEY, 'playlist:' + currentPlaylistId);
+        }
+      } catch (_) {}
+    }
 
     setTimeout(async () => {
       // Grab title
@@ -1006,7 +1120,6 @@ function onState(e) {
             }
           }
           renderLib();
-          updateSaveBtn();
         }
       }
     }, 800);
@@ -1017,28 +1130,20 @@ function onState(e) {
     stopAbMonitor();
   }
 
-  if (e.data === YT.PlayerState.ENDED && looping && curId) {
-    // Only count & loop if no B point (AB monitor handles the B-point case)
-    if (loopB === null) countLoop();
-    player.seekTo(loopA ?? 0, true);
-    player.playVideo();
+  if (e.data === YT.PlayerState.ENDED && curId) {
+    if (playlistMode && currentPlaylistId) {
+      // Advance to next track; YouTube player wraps to start after last track
+      player.nextVideo();
+    } else if (looping) {
+      // Only count & loop if no B point (AB monitor handles the B-point case)
+      if (loopB === null) countLoop();
+      player.seekTo(loopA ?? 0, true);
+      player.playVideo();
+    }
   }
 }
 
 // ── Play video ─────────────────────────────────────────────────────────────
-function updateSaveBtn() {
-  const btn = document.getElementById('saveBtn');
-  const lib = loadLib();
-  if (curId && lib[curId]) {
-    btn.textContent = '✓ Saved';
-    btn.style.opacity = '0.5';
-    btn.style.cursor  = 'default';
-  } else {
-    btn.textContent = '＋ Save';
-    btn.style.opacity = '';
-    btn.style.cursor  = '';
-  }
-}
 
 function playVideo(id) {
   if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
@@ -1058,7 +1163,6 @@ function playVideo(id) {
   loopA = entry?.loopA ?? null;
   loopB = entry?.loopB ?? null;
   updateAbBar();
-  updateSaveBtn();
 
   const total = entry ? (entry.loops || 0) : 0;
   document.getElementById('totalCount').textContent = total;
@@ -1074,22 +1178,34 @@ function playVideo(id) {
 }
 
 function tryAutoPlay() {
-  const lastId = localStorage.getItem(LAST_PLAYED_KEY);
-  if (!lastId) return;
+  const last = localStorage.getItem(LAST_PLAYED_KEY);
+  if (!last) return;
+  const isPlaylist = last.startsWith('playlist:');
+  const id = isPlaylist ? last.slice('playlist:'.length) : last;
   if (ready && player) {
-    playVideo(lastId);
+    isPlaylist ? loadPlaylist(id) : playVideo(id);
   } else {
-    pendingAutoPlay = lastId;  // player not ready yet; onReady will pick this up
+    pendingAutoPlay = last;
   }
 }
 
 // ── UI handlers ────────────────────────────────────────────────────────────
 function handlePlay() {
-  const raw = document.getElementById('urlInput').value;
-  const id  = extractId(raw);
-  if (!id) { toast('⚠️ Could not find a YouTube video ID in that link'); return; }
+  const raw    = document.getElementById('urlInput').value.trim();
+  const listId = extractPlaylistId(raw);
+  const vidId  = extractId(raw);
+
+  if (!listId && !vidId) { toast('⚠️ Could not find a YouTube video or playlist URL'); return; }
   document.getElementById('urlInput').value = '';
-  playVideo(id);
+
+  if (listId) {
+    loadPlaylist(listId);
+  } else {
+    currentPlaylistId = null;
+    playlistMode      = false;
+    updatePlaylistBtn();
+    playVideo(vidId);
+  }
 }
 
 document.getElementById('playBtn').addEventListener('click', handlePlay);
@@ -1104,39 +1220,13 @@ document.getElementById('loopBtn').addEventListener('click', function () {
   toast(looping ? 'Loop enabled' : 'Loop disabled');
 });
 
-document.getElementById('saveBtn').addEventListener('click', async () => {
-  if (!curId) { toast('▶ Play a video first'); return; }
-
-  if (realmUser) {
-    // Logged-in path
-    if (serverLibCache[curId]) { toast('Already in your library!'); return; }
-    try {
-      await col().insertOne({
-        owner_id: realmUser.id,
-        videoId:  curId,
-        title:    curTitle || 'Unknown',
-        loops:    0,
-        addedAt:  new Date(),
-      });
-      serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
-      renderLib();
-      updateSaveBtn();
-      toast('✅ Saved to library!');
-    } catch (err) {
-      console.error(err);
-      toast('⚠️ Failed to save. Try again.');
-    }
-  } else {
-    // Guest path
-    const lib = loadLib();
-    if (lib[curId]) { toast('Already in your library!'); return; }
-    lib[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
-    saveLib(lib);
-    renderLib();
-    updateSaveBtn();
-    toast('✅ Saved to library!');
-  }
+document.getElementById('playlistBtn').addEventListener('click', function () {
+  if (!currentPlaylistId) { toast('Paste a YouTube playlist URL first'); return; }
+  playlistMode = !playlistMode;
+  updatePlaylistBtn();
+  toast(playlistMode ? '▶ Playlist mode — advancing through tracks' : '🔁 Back to loop mode');
 });
+
 
 document.getElementById('clearBtn').addEventListener('click', async () => {
   if (!confirm('Clear your entire library?')) return;
