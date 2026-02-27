@@ -485,6 +485,7 @@ let looping        = true;
 let curId          = null;
 let curTitle       = '';
 let sessLoops      = 0;
+let autoSaved      = false;  // tracks whether current video was auto-saved
 let currentUser    = null;   // Auth0 user profile
 let realmUser      = null;   // Realm session (null = guest)
 let serverLibCache = null;   // null = guest; object = logged-in cache
@@ -726,7 +727,7 @@ function onPlayerError(e) {
 function onState(e) {
   if (e.data === YT.PlayerState.PLAYING) {
     document.getElementById('placeholder').style.display = 'none';
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
         const t = player.getVideoData().title;
         if (t) {
@@ -744,11 +745,38 @@ function onState(e) {
             if (lib[curId] && lib[curId].title === 'Unknown') {
               lib[curId].title = t;
               saveLib(lib);
-              renderLib();
             }
           }
         }
       } catch (_) {}
+
+      // Auto-save on first play if not already in library
+      if (!autoSaved && curId) {
+        autoSaved = true;
+        const lib = loadLib();
+        if (!lib[curId]) {
+          if (realmUser) {
+            try {
+              await col().insertOne({
+                owner_id: realmUser.id,
+                videoId:  curId,
+                title:    curTitle || 'Unknown',
+                loops:    0,
+                addedAt:  new Date(),
+              });
+              serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
+            } catch (_) {}
+          } else {
+            const lib2 = loadLib();
+            if (!lib2[curId]) {
+              lib2[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
+              saveLib(lib2);
+            }
+          }
+          renderLib();
+          updateSaveBtn();
+        }
+      }
     }, 800);
   }
 
@@ -781,12 +809,28 @@ function onState(e) {
 }
 
 // ── Play video ─────────────────────────────────────────────────────────────
+function updateSaveBtn() {
+  const btn = document.getElementById('saveBtn');
+  const lib = loadLib();
+  if (curId && lib[curId]) {
+    btn.textContent = '✓ Saved';
+    btn.style.opacity = '0.5';
+    btn.style.cursor  = 'default';
+  } else {
+    btn.textContent = '＋ Save';
+    btn.style.opacity = '';
+    btn.style.cursor  = '';
+  }
+}
+
 function playVideo(id) {
   if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
   curId     = id;
   sessLoops = 0;
   curTitle  = '';
+  autoSaved = false;
   document.getElementById('sessCount').textContent = '0';
+  updateSaveBtn();
 
   const lib   = loadLib();
   const total = lib[id] ? (lib[id].loops || 0) : 0;
@@ -838,6 +882,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
       });
       serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
       renderLib();
+      updateSaveBtn();
       toast('✅ Saved to library!');
     } catch (err) {
       console.error(err);
@@ -850,6 +895,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     lib[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now() };
     saveLib(lib);
     renderLib();
+    updateSaveBtn();
     toast('✅ Saved to library!');
   }
 });
@@ -943,6 +989,7 @@ function toast(msg) {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
+renderLib();   // render localStorage immediately so library shows while auth loads
 initAuth();
 </script>
 </body>
