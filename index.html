@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <!-- Auth0 SPA SDK (PKCE — no client secret in the browser) -->
-  <script src="https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.js"></script>
-  <!-- MongoDB Realm Web SDK -->
+  <script src="https://unpkg.com/@auth0/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.js"></script>
+  <!-- Realm Web SDK — talks directly to MongoDB Atlas App Services -->
   <script src="https://unpkg.com/realm-web@2.0.0/dist/bundle.iife.js"></script>
   <style>
     :root {
@@ -570,9 +570,10 @@
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
 // ── Config (public values — no secrets go here) ────────────────────────────
-const AUTH0_DOMAIN    = 'YOUR_AUTH0_DOMAIN';     // e.g. repeat-videos.auth0.com
-const AUTH0_CLIENT_ID = 'YOUR_AUTH0_CLIENT_ID';  // SPA Client ID — not a secret
-const REALM_APP_ID    = 'YOUR_REALM_APP_ID';     // e.g. repeat-videos-xxxxx
+const AUTH0_DOMAIN    = 'dev-wi0i54wuxsdja4bg.us.auth0.com';
+const AUTH0_CLIENT_ID = 'vDsFCK6wEV1dGfqJQG3lllFGP0umQ2NJ';
+const API_AUDIENCE    = 'https://api.repeat-videos.com';
+const REALM_APP_ID    = 'YOUR_REALM_APP_ID';  // fill in after Atlas App Services setup
 
 // ── State ──────────────────────────────────────────────────────────────────
 let player         = null;
@@ -581,38 +582,42 @@ let looping        = true;
 let curId          = null;
 let curTitle       = '';
 let sessLoops      = 0;
-let autoSaved      = false;  // tracks whether current video was auto-saved
-let loopA          = null;   // A point in seconds (null = video start)
-let loopB          = null;   // B point in seconds (null = video end)
-let duration       = 0;      // video duration in seconds
-let abInterval     = null;   // interval for AB loop monitoring
-let rafId          = null;   // requestAnimationFrame id for playhead
-let pendingAutoPlay    = null;  // video ID to play once the YT player is ready
-let currentPlaylistId = null;  // active playlist ID, null = single-video mode
-let playlistMode      = false; // true = advance through playlist, false = loop
-let currentUser    = null;   // Auth0 user profile
-let realmUser      = null;   // Realm session (null = guest)
+let autoSaved      = false;
+let loopA          = null;
+let loopB          = null;
+let duration       = 0;
+let abInterval     = null;
+let rafId          = null;
+let pendingAutoPlay    = null;
+let currentPlaylistId = null;
+let playlistMode      = false;
+let currentUser    = null;
 let serverLibCache = null;   // null = guest; object = logged-in cache
 let auth0Client    = null;
-let realmApp       = null;
+let realmUser      = null;
 
-// ── Realm collection helper ────────────────────────────────────────────────
-const col = () =>
-  realmUser.mongoClient('mongodb-atlas').db('repeat-videos').collection('library');
+const realmApp = new Realm.App({ id: REALM_APP_ID });
+
+// ── Atlas collection helper ────────────────────────────────────────────────
+function col() {
+  return realmUser
+    .mongoClient('mongodb-atlas')
+    .db('repeat-videos')
+    .collection('library');
+}
 
 // ── Storage abstraction ────────────────────────────────────────────────────
 const STORE_KEY      = 'repeat-videos_v1';
 const LAST_PLAYED_KEY = 'repeat-videos_last';
 
 function loadLib() {
-  if (realmUser && serverLibCache !== null) return serverLibCache;
+  if (serverLibCache !== null) return serverLibCache;
   try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); }
   catch { return {}; }
 }
 
 function saveLib(lib) {
-  // Only used in guest mode — logged-in path writes to Atlas directly
-  if (realmUser) return;
+  if (serverLibCache !== null) return; // logged in, use API instead
   localStorage.setItem(STORE_KEY, JSON.stringify(lib));
 }
 
@@ -628,10 +633,6 @@ function showGuestUI() {
 }
 
 function onSignInClick() {
-  if (AUTH0_DOMAIN === 'YOUR_AUTH0_DOMAIN' || AUTH0_CLIENT_ID === 'YOUR_AUTH0_CLIENT_ID') {
-    toast('⚙️ Configure Auth0 credentials in index.html to enable login');
-    return;
-  }
   document.getElementById('signinDropdown')?.classList.toggle('hidden');
 }
 
@@ -681,8 +682,10 @@ function showUserInfo(user) {
 
 async function loginWith(connection) {
   try {
+    // Support both auth0-spa-js v1 (flat params) and v2 (authorizationParams)
     await auth0Client.loginWithRedirect({
       authorizationParams: { connection },
+      connection,
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -691,11 +694,17 @@ async function loginWith(connection) {
 }
 
 async function logout() {
-  try { await realmApp.currentUser?.logOut(); } catch (_) {}
-  await auth0Client.logout({ logoutParams: { returnTo: window.location.origin } });
+  serverLibCache = null;
+  await realmApp.currentUser?.logOut();
+  realmUser = null;
+  // Support both auth0-spa-js v1 (returnTo) and v2 (logoutParams.returnTo)
+  await auth0Client.logout({
+    logoutParams: { returnTo: window.location.origin },
+    returnTo: window.location.origin,
+  });
 }
 
-// ── Atlas sync ─────────────────────────────────────────────────────────────
+// ── Atlas sync ───────────────────────────────────────────────────────────────
 async function loadLibraryFromAtlas() {
   try {
     const entries = await col().find({ owner_id: realmUser.id });
@@ -710,9 +719,9 @@ async function loadLibraryFromAtlas() {
       };
     }
   } catch (err) {
-    console.error('Atlas load failed:', err);
+    console.error('Library load failed:', err);
     serverLibCache = {};
-    toast('⚠️ Could not load library from server.');
+    toast('⚠️ Could not load library from Atlas.');
   }
   renderLib();
 }
@@ -736,9 +745,12 @@ async function offerImportFromLocalStorage() {
         title:   s.title || 'Unknown',
         loops:   s.loops || 0,
         addedAt: new Date(s.addedAt || Date.now()),
+        loopA:   s.loopA ?? null,
+        loopB:   s.loopB ?? null,
       });
       serverLibCache[videoId] = {
         title: s.title || 'Unknown', loops: s.loops || 0, addedAt: s.addedAt || Date.now(),
+        loopA: s.loopA ?? null, loopB: s.loopB ?? null,
       };
       imported++;
     } catch (_) {}
@@ -752,24 +764,21 @@ async function offerImportFromLocalStorage() {
 
 // ── Auth init ──────────────────────────────────────────────────────────────
 async function initAuth() {
-  // Show guest UI when credentials haven't been configured yet
-  if (AUTH0_DOMAIN === 'YOUR_AUTH0_DOMAIN' || AUTH0_CLIENT_ID === 'YOUR_AUTH0_CLIENT_ID') {
-    showGuestUI();
-    renderLib();
-    tryAutoPlay();
-    return;
-  }
   try {
+    // Support both auth0-spa-js v1 (flat) and v2 (authorizationParams)
     auth0Client = await auth0.createAuth0Client({
-      domain:   AUTH0_DOMAIN,
-      clientId: AUTH0_CLIENT_ID,
+      domain:           AUTH0_DOMAIN,
+      clientId:         AUTH0_CLIENT_ID,
+      client_id:        AUTH0_CLIENT_ID,
+      audience:         API_AUDIENCE,
+      redirect_uri:     window.location.origin,
+      cacheLocation:    'localstorage',
+      useRefreshTokens: true,
       authorizationParams: {
         redirect_uri: window.location.origin,
-        audience:     'https://api.repeat-videos.com',
+        audience:     API_AUDIENCE,
       },
     });
-
-    realmApp = new Realm.App({ id: REALM_APP_ID });
 
     // Handle redirect back from Auth0
     if (location.search.includes('code=') && location.search.includes('state=')) {
@@ -780,16 +789,30 @@ async function initAuth() {
     const isLoggedIn = await auth0Client.isAuthenticated();
     if (isLoggedIn) {
       currentUser = await auth0Client.getUser();
-      const token = await auth0Client.getAccessTokenSilently();
-      const creds = Realm.Credentials.jwt(token);
-      realmUser   = await realmApp.logIn(creds);
-      showUserInfo(currentUser);
-      await loadLibraryFromAtlas();
-      await offerImportFromLocalStorage();
+      showUserInfo(currentUser);  // show name/avatar immediately — never blocked by Realm
+
+      // Realm login is best-effort; failure only disables cloud sync, not the user session
+      if (REALM_APP_ID !== 'YOUR_REALM_APP_ID') {
+        try {
+          const accessToken = await (auth0Client.getAccessTokenSilently?.() ?? auth0Client.getTokenSilently?.());
+          const creds = Realm.Credentials.jwt(accessToken);
+          realmUser = await realmApp.logIn(creds);
+          await loadLibraryFromAtlas();
+          await offerImportFromLocalStorage();
+        } catch (realmErr) {
+          console.error('Realm login failed, falling back to localStorage:', realmErr);
+          serverLibCache = null;
+          renderLib();
+          toast('⚠️ Cloud sync unavailable — library stored locally.');
+        }
+      } else {
+        // Atlas not configured yet — use localStorage for logged-in users too
+        renderLib();
+      }
       tryAutoPlay();
     } else {
       showLoginButtons();
-      renderLib(); // guest mode: localStorage
+      renderLib();
       tryAutoPlay();
     }
   } catch (err) {
@@ -866,13 +889,13 @@ function loadPlaylist(listId) {
 
 // ── YouTube IFrame API ─────────────────────────────────────────────────────
 window.onYouTubeIframeAPIReady = function () {
-  ready = true;
   player = new YT.Player('yt-player', {
     height: '100%',
     width:  '100%',
     playerVars: { rel: 0, modestbranding: 1 },
     events: {
       onReady: () => {
+        ready = true;
         if (!pendingAutoPlay) return;
         const p = pendingAutoPlay; pendingAutoPlay = null;
         p.startsWith('playlist:') ? loadPlaylist(p.slice('playlist:'.length)) : playVideo(p);
@@ -948,10 +971,13 @@ function stopProgressUpdate() {
 function countLoop() {
   sessLoops++;
   document.getElementById('sessCount').textContent = sessLoops;
-  if (realmUser && serverLibCache && serverLibCache[curId]) {
+  if (serverLibCache !== null && serverLibCache[curId]) {
     serverLibCache[curId].loops = (serverLibCache[curId].loops || 0) + 1;
     document.getElementById('totalCount').textContent = serverLibCache[curId].loops;
-    col().updateOne({ owner_id: realmUser.id, videoId: curId }, { $inc: { loops: 1 } }).catch(() => {});
+    col().updateOne(
+      { owner_id: realmUser.id, videoId: curId },
+      { $inc: { loops: 1 } }
+    ).catch(() => {});
   } else {
     const lib = loadLib();
     if (lib[curId]) {
@@ -983,11 +1009,14 @@ function stopAbMonitor() {
 
 function saveAbToLib() {
   if (!curId) return;
-  if (realmUser && serverLibCache && serverLibCache[curId]) {
+  if (serverLibCache !== null && serverLibCache[curId]) {
     serverLibCache[curId].loopA = loopA;
     serverLibCache[curId].loopB = loopB;
-    col().updateOne({ owner_id: realmUser.id, videoId: curId }, { $set: { loopA, loopB } }).catch(() => {});
-  } else if (!realmUser) {
+    col().updateOne(
+      { owner_id: realmUser.id, videoId: curId },
+      { $set: { loopA, loopB } }
+    ).catch(() => {});
+  } else if (serverLibCache === null) {
     const lib = loadLib();
     if (lib[curId]) { lib[curId].loopA = loopA; lib[curId].loopB = loopB; saveLib(lib); }
   }
@@ -1055,12 +1084,10 @@ function initAbBar() {
 function onState(e) {
   if (e.data === YT.PlayerState.PLAYING) {
     document.getElementById('placeholder').style.display = 'none';
-    // Get duration as soon as we're playing
     try { if (!duration) { duration = player.getDuration(); updateAbBar(); } } catch (_) {}
     startProgressUpdate();
     if (!playlistMode) startAbMonitor();
 
-    // In playlist mode, detect when a new video starts (curId changes)
     if (playlistMode) {
       try {
         const data = player.getVideoData();
@@ -1082,33 +1109,39 @@ function onState(e) {
     }
 
     setTimeout(async () => {
-      // Grab title
       try {
         const t = player.getVideoData().title;
         if (!duration) { duration = player.getDuration(); updateAbBar(); }
         if (t) {
           curTitle = t;
           document.getElementById('vidTitle').textContent = t;
-          if (realmUser && serverLibCache && serverLibCache[curId]?.title === 'Unknown') {
+          if (serverLibCache !== null && serverLibCache[curId]?.title === 'Unknown') {
             serverLibCache[curId].title = t;
-            col().updateOne({ owner_id: realmUser.id, videoId: curId }, { $set: { title: t } }).catch(() => {});
-          } else if (!realmUser) {
+            col().updateOne(
+              { owner_id: realmUser.id, videoId: curId },
+              { $set: { title: t } }
+            ).catch(() => {});
+          } else if (serverLibCache === null) {
             const lib = loadLib();
             if (lib[curId] && lib[curId].title === 'Unknown') { lib[curId].title = t; saveLib(lib); }
           }
         }
       } catch (_) {}
 
-      // Auto-save on first play
       if (!autoSaved && curId) {
         autoSaved = true;
         const lib = loadLib();
         if (!lib[curId]) {
-          if (realmUser) {
+          if (serverLibCache !== null) {
             try {
               await col().insertOne({
-                owner_id: realmUser.id, videoId: curId,
-                title: curTitle || 'Unknown', loops: 0, addedAt: new Date(), loopA, loopB,
+                owner_id: realmUser.id,
+                videoId:  curId,
+                title:    curTitle || 'Unknown',
+                loops:    0,
+                addedAt:  new Date(),
+                loopA,
+                loopB,
               });
               serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB };
             } catch (_) {}
@@ -1132,10 +1165,8 @@ function onState(e) {
 
   if (e.data === YT.PlayerState.ENDED && curId) {
     if (playlistMode && currentPlaylistId) {
-      // Advance to next track; YouTube player wraps to start after last track
       player.nextVideo();
     } else if (looping) {
-      // Only count & loop if no B point (AB monitor handles the B-point case)
       if (loopB === null) countLoop();
       player.seekTo(loopA ?? 0, true);
       player.playVideo();
@@ -1144,7 +1175,6 @@ function onState(e) {
 }
 
 // ── Play video ─────────────────────────────────────────────────────────────
-
 function playVideo(id) {
   if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
   stopProgressUpdate();
@@ -1157,7 +1187,6 @@ function playVideo(id) {
   duration  = 0;
   document.getElementById('sessCount').textContent = '0';
 
-  // Restore saved A/B points for this video (or reset)
   const lib = loadLib();
   const entry = lib[id];
   loopA = entry?.loopA ?? null;
@@ -1227,11 +1256,10 @@ document.getElementById('playlistBtn').addEventListener('click', function () {
   toast(playlistMode ? '▶ Playlist mode — advancing through tracks' : '🔁 Back to loop mode');
 });
 
-
 document.getElementById('clearBtn').addEventListener('click', async () => {
   if (!confirm('Clear your entire library?')) return;
 
-  if (realmUser) {
+  if (serverLibCache !== null) {
     try {
       await col().deleteMany({ owner_id: realmUser.id });
       serverLibCache = {};
@@ -1282,7 +1310,7 @@ function renderLib() {
 
 async function delSong(id, e) {
   e.stopPropagation();
-  if (realmUser) {
+  if (serverLibCache !== null) {
     try {
       await col().deleteOne({ owner_id: realmUser.id, videoId: id });
       delete serverLibCache[id];

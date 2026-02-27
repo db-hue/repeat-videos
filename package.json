@@ -1,0 +1,8 @@
+{
+  "name": "repeat-videos",
+  "version": "1.0.0",
+  "dependencies": {
+    "mongodb": "^6.12.0",
+    "jose": "^4.15.9"
+  }
+}
