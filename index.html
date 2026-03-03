@@ -9,8 +9,6 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <!-- Auth0 SPA SDK (PKCE — no client secret in the browser) -->
   <script src="https://unpkg.com/@auth0/auth0-spa-js@2.1.3/dist/auth0-spa-js.production.js"></script>
-  <!-- Realm Web SDK — talks directly to MongoDB Atlas App Services -->
-  <script src="https://unpkg.com/realm-web@2.0.0/dist/bundle.iife.js"></script>
   <style>
     :root {
       --bg0: #08080f;
@@ -140,6 +138,20 @@
       border-radius: 50%;
       border: 2px solid var(--accent);
       object-fit: cover;
+      flex-shrink: 0;
+    }
+    .user-avatar-fallback {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 2px solid var(--accent);
+      background: var(--bg3);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.9rem;
       flex-shrink: 0;
     }
     .user-name {
@@ -628,6 +640,12 @@
       transition: color 0.2s;
     }
     .btn-playlist-lib:hover { color: var(--accent); }
+    .playlist-lib-label {
+      font-size: 0.7rem;
+      display: block;
+      line-height: 1;
+      margin-top: 2px;
+    }
 
     /* ── Empty state ── */
     .empty {
@@ -758,7 +776,7 @@
 const AUTH0_DOMAIN    = 'dev-wi0i54wuxsdja4bg.us.auth0.com';
 const AUTH0_CLIENT_ID = 'vDsFCK6wEV1dGfqJQG3lllFGP0umQ2NJ';
 const API_AUDIENCE    = 'https://api.repeat-videos.com';
-const REALM_APP_ID    = 'YOUR_REALM_APP_ID';  // fill in after Atlas App Services setup
+const API_URL         = '/.netlify/functions/library';
 
 // ── State ──────────────────────────────────────────────────────────────────
 let player         = null;
@@ -780,20 +798,29 @@ let currentUser    = null;
 let serverLibCache = null;   // null = guest; object = logged-in cache
 let lastLibRefresh = 0;
 let auth0Client    = null;
-let realmUser      = null;
+let accessToken    = null;
 let plTracks       = [];        // [{id, title}] from player.getPlaylist()
 let plCollapsed    = false;
 let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
+let pollTimer      = null;      // polling timer for cross-device sync
 
-const realmApp = new Realm.App({ id: REALM_APP_ID });
+// ── API helper ────────────────────────────────────────────────────────────
+async function getToken() {
+  accessToken = await (auth0Client.getAccessTokenSilently?.() ?? auth0Client.getTokenSilently?.());
+  return accessToken;
+}
 
-// ── Atlas collection helper ────────────────────────────────────────────────
-function col() {
-  return realmUser
-    .mongoClient('mongodb-atlas')
-    .db('repeat-videos')
-    .collection('library');
+async function api(method, body) {
+  const token = await getToken();
+  const opts = {
+    method,
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API_URL, opts);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
 }
 
 // ── Storage abstraction ────────────────────────────────────────────────────
@@ -858,9 +885,12 @@ function closeDropdownOutside(e) {
 function showUserInfo(user) {
   document.removeEventListener('click', closeDropdownOutside);
   const area   = document.getElementById('authArea');
-  const avatar = user.picture
-    ? `<img class="user-avatar" src="${esc(user.picture)}" alt="" onerror="this.style.display='none'" />`
+  const initials = (user.name || user.email || 'U').charAt(0).toUpperCase();
+  const imgTag = user.picture
+    ? `<img class="user-avatar" src="${user.picture}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />`
     : '';
+  const fallback = `<span class="user-avatar-fallback" style="${user.picture ? 'display:none' : 'display:flex'}">${initials}</span>`;
+  const avatar = imgTag + fallback;
   area.innerHTML = `
     <div class="user-info">
       ${avatar}
@@ -884,9 +914,9 @@ async function loginWith(connection) {
 }
 
 async function logout() {
+  stopPolling();
   serverLibCache = null;
-  await realmApp.currentUser?.logOut();
-  realmUser = null;
+  accessToken = null;
   // Support both auth0-spa-js v1 (returnTo) and v2 (logoutParams.returnTo)
   await auth0Client.logout({
     logoutParams: { returnTo: window.location.origin },
@@ -897,7 +927,7 @@ async function logout() {
 // ── Atlas sync ───────────────────────────────────────────────────────────────
 async function loadLibraryFromAtlas() {
   try {
-    const entries = await col().find({ owner_id: realmUser.id });
+    const entries = await api('GET');
     serverLibCache = {};
     for (const e of entries) {
       serverLibCache[e.videoId] = {
@@ -912,7 +942,7 @@ async function loadLibraryFromAtlas() {
   } catch (err) {
     console.error('Library load failed:', err);
     serverLibCache = {};
-    toast('⚠️ Could not load library from Atlas.');
+    toast('⚠️ Could not load library.');
   }
   lastLibRefresh = Date.now();
   renderLib();
@@ -931,12 +961,11 @@ async function offerImportFromLocalStorage() {
   for (const [videoId, s] of Object.entries(local)) {
     if (serverLibCache[videoId]) continue;
     try {
-      await col().insertOne({
-        owner_id: realmUser.id,
+      await api('POST', {
         videoId,
         title:   s.title || 'Unknown',
         loops:   s.loops || 0,
-        addedAt: new Date(s.addedAt || Date.now()),
+        addedAt: new Date(s.addedAt || Date.now()).toISOString(),
         loopA:   s.loopA ?? null,
         loopB:   s.loopB ?? null,
         playlistId: s.playlistId ?? null,
@@ -982,25 +1011,18 @@ async function initAuth() {
     const isLoggedIn = await auth0Client.isAuthenticated();
     if (isLoggedIn) {
       currentUser = await auth0Client.getUser();
-      showUserInfo(currentUser);  // show name/avatar immediately — never blocked by Realm
+      showUserInfo(currentUser);
 
-      // Realm login is best-effort; failure only disables cloud sync, not the user session
-      if (REALM_APP_ID !== 'YOUR_REALM_APP_ID') {
-        try {
-          const accessToken = await (auth0Client.getAccessTokenSilently?.() ?? auth0Client.getTokenSilently?.());
-          const creds = Realm.Credentials.jwt(accessToken);
-          realmUser = await realmApp.logIn(creds);
-          await loadLibraryFromAtlas();
-          await offerImportFromLocalStorage();
-        } catch (realmErr) {
-          console.error('Realm login failed, falling back to localStorage:', realmErr);
-          serverLibCache = null;
-          renderLib();
-          toast('⚠️ Cloud sync unavailable — library stored locally.');
-        }
-      } else {
-        // Atlas not configured yet — use localStorage for logged-in users too
+      // Backend sync — best-effort; failure falls back to localStorage
+      try {
+        await loadLibraryFromAtlas();
+        startPolling();
+        await offerImportFromLocalStorage();
+      } catch (syncErr) {
+        console.error('Backend sync failed, falling back to localStorage:', syncErr);
+        serverLibCache = null;
         renderLib();
+        toast('⚠️ Cloud sync unavailable — library stored locally.');
       }
       tryAutoPlay();
     } else {
@@ -1020,7 +1042,7 @@ async function initAuth() {
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible') return;
   if (serverLibCache === null) return;
-  if (Date.now() - lastLibRefresh < 30000) return;
+  if (Date.now() - lastLibRefresh < 5000) return;
   lastLibRefresh = Date.now();
   await loadLibraryFromAtlas();
 });
@@ -1030,6 +1052,20 @@ async function manualLibRefresh() {
   lastLibRefresh = Date.now();
   await loadLibraryFromAtlas();
   toast('Library refreshed');
+}
+
+// ── Polling sync across devices ──────────────────────────────────────────────
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    if (document.visibilityState !== 'visible') return;
+    if (serverLibCache === null) return;
+    try { await loadLibraryFromAtlas(); } catch (_) {}
+  }, 5000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
 // ── YouTube ID extractors ──────────────────────────────────────────────────
@@ -1298,10 +1334,7 @@ function countLoop() {
   if (serverLibCache !== null && serverLibCache[curId]) {
     serverLibCache[curId].loops = (serverLibCache[curId].loops || 0) + 1;
     document.getElementById('totalCount').textContent = serverLibCache[curId].loops;
-    col().updateOne(
-      { owner_id: realmUser.id, videoId: curId },
-      { $inc: { loops: 1 } }
-    ).catch(() => {});
+    api('PATCH', { videoId: curId, incLoops: true }).catch(() => {});
   } else {
     const lib = loadLib();
     if (lib[curId]) {
@@ -1336,10 +1369,7 @@ function saveAbToLib() {
   if (serverLibCache !== null && serverLibCache[curId]) {
     serverLibCache[curId].loopA = loopA;
     serverLibCache[curId].loopB = loopB;
-    col().updateOne(
-      { owner_id: realmUser.id, videoId: curId },
-      { $set: { loopA, loopB } }
-    ).catch(() => {});
+    api('PATCH', { videoId: curId, loopA, loopB }).catch(() => {});
   } else if (serverLibCache === null) {
     const lib = loadLib();
     if (lib[curId]) { lib[curId].loopA = loopA; lib[curId].loopB = loopB; saveLib(lib); }
@@ -1451,10 +1481,7 @@ function onState(e) {
           }
           if (serverLibCache !== null && serverLibCache[curId]?.title === 'Unknown') {
             serverLibCache[curId].title = t;
-            col().updateOne(
-              { owner_id: realmUser.id, videoId: curId },
-              { $set: { title: t } }
-            ).catch(() => {});
+            api('PATCH', { videoId: curId, title: t }).catch(() => {});
           } else if (serverLibCache === null) {
             const lib = loadLib();
             if (lib[curId] && lib[curId].title === 'Unknown') { lib[curId].title = t; saveLib(lib); }
@@ -1469,12 +1496,11 @@ function onState(e) {
           if (serverLibCache !== null) {
             try {
               const _plId = currentPlaylistId || null;
-              await col().insertOne({
-                owner_id: realmUser.id,
+              await api('POST', {
                 videoId:  curId,
                 title:    curTitle || 'Unknown',
                 loops:    0,
-                addedAt:  new Date(),
+                addedAt:  new Date().toISOString(),
                 loopA,
                 loopB,
                 playlistId: _plId,
@@ -1493,10 +1519,7 @@ function onState(e) {
           // Video already in library but now played from a playlist — attach playlistId
           if (serverLibCache !== null) {
             try {
-              await col().updateOne(
-                { owner_id: realmUser.id, videoId: curId },
-                { $set: { playlistId: currentPlaylistId } }
-              );
+              await api('PATCH', { videoId: curId, playlistId: currentPlaylistId });
               serverLibCache[curId].playlistId = currentPlaylistId;
             } catch (_) {}
           } else {
@@ -1666,7 +1689,7 @@ document.getElementById('clearBtn').addEventListener('click', async () => {
 
   if (serverLibCache !== null) {
     try {
-      await col().deleteMany({ owner_id: realmUser.id });
+      await api('DELETE', { all: true });
       serverLibCache = {};
     } catch (err) {
       toast('⚠️ Failed to clear. Try again.');
@@ -1711,8 +1734,8 @@ function renderLib() {
         <span class="num">${s.loops || 0}</span>
         <span class="lbl">loops</span>
       </div>
-      ${s.playlistId ? `<button class="btn-playlist-lib" onclick="loadPlaylistFromLib('${s.playlistId}', event)" title="Play source playlist">▶</button>` : ''}
-      <button class="btn-del" onclick="delSong('${id}', event)" title="Remove">✕</button>
+      ${s.playlistId ? `<button class="btn-playlist-lib" onclick="loadPlaylistFromLib('${s.playlistId}', event)" title="Play source playlist">▶<span class="playlist-lib-label">Start playlist</span></button>` : ''}
+      <button class="btn-del" onclick="delSong('${id}', event)" title="Remove">🗑️</button>
     </div>
   `).join('');
 }
@@ -1726,7 +1749,7 @@ async function delSong(id, e) {
   e.stopPropagation();
   if (serverLibCache !== null) {
     try {
-      await col().deleteOne({ owner_id: realmUser.id, videoId: id });
+      await api('DELETE', { videoId: id });
       delete serverLibCache[id];
     } catch (err) {
       toast('⚠️ Failed to remove. Try again.');

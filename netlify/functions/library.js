@@ -66,12 +66,12 @@ exports.handler = async (event) => {
 
     // POST — upsert a video entry (insert only if not already present)
     if (event.httpMethod === 'POST') {
-      const { videoId, title, loopA = null, loopB = null, loops = 0, addedAt } = body;
+      const { videoId, title, loopA = null, loopB = null, loops = 0, addedAt, playlistId = null } = body;
       await col.updateOne(
         { owner_id: userId, videoId },
         { $setOnInsert: {
             owner_id: userId, videoId, title,
-            loops, loopA, loopB,
+            loops, loopA, loopB, playlistId,
             addedAt: new Date(addedAt || Date.now()),
           }
         },
@@ -82,13 +82,14 @@ exports.handler = async (event) => {
 
     // PATCH — update fields (increment loops, set title/loopA/loopB)
     if (event.httpMethod === 'PATCH') {
-      const { videoId, incLoops, title, loopA, loopB } = body;
+      const { videoId, incLoops, title, loopA, loopB, playlistId } = body;
       const update = {};
       if (incLoops) update.$inc = { loops: 1 };
       const $set = {};
       if (title !== undefined) $set.title = title;
       if (loopA !== undefined) $set.loopA = loopA;
       if (loopB !== undefined) $set.loopB = loopB;
+      if (playlistId !== undefined) $set.playlistId = playlistId;
       if (Object.keys($set).length) update.$set = $set;
       if (!Object.keys(update).length) {
         return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'No update fields' }) };
