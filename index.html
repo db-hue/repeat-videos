@@ -742,6 +742,7 @@
   </div>
   <div class="songs" id="songs"></div>
   <div class="lib-footer" id="libFooter" style="display:none; text-align:center; padding:12px 0 20px;">
+    <button id="libRefreshBtn" onclick="manualLibRefresh()" title="Refresh library" style="display:none; background:none; border:1px solid rgba(255,255,255,.15); border-radius:6px; color:#aaa; cursor:pointer; font-size:1rem; padding:4px 10px; margin-right:8px; transition:color .2s">🔄</button>
     <button class="btn-danger-ghost" id="clearBtn">Clear all</button>
   </div>
 
@@ -777,6 +778,7 @@ let currentPlaylistId = null;
 let playlistMode      = false;
 let currentUser    = null;
 let serverLibCache = null;   // null = guest; object = logged-in cache
+let lastLibRefresh = 0;
 let auth0Client    = null;
 let realmUser      = null;
 let plTracks       = [];        // [{id, title}] from player.getPlaylist()
@@ -912,6 +914,7 @@ async function loadLibraryFromAtlas() {
     serverLibCache = {};
     toast('⚠️ Could not load library from Atlas.');
   }
+  lastLibRefresh = Date.now();
   renderLib();
 }
 
@@ -1011,6 +1014,22 @@ async function initAuth() {
     renderLib();
     tryAutoPlay();
   }
+}
+
+// ── Library sync across devices ─────────────────────────────────────────────
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible') return;
+  if (serverLibCache === null) return;
+  if (Date.now() - lastLibRefresh < 30000) return;
+  lastLibRefresh = Date.now();
+  await loadLibraryFromAtlas();
+});
+
+async function manualLibRefresh() {
+  if (serverLibCache === null) return;
+  lastLibRefresh = Date.now();
+  await loadLibraryFromAtlas();
+  toast('Library refreshed');
 }
 
 // ── YouTube ID extractors ──────────────────────────────────────────────────
@@ -1676,6 +1695,7 @@ function renderLib() {
     return;
   }
   document.getElementById('libFooter').style.display = '';
+  document.getElementById('libRefreshBtn').style.display = serverLibCache !== null ? '' : 'none';
 
   el.innerHTML = list.map(([id, s]) => `
     <div class="song-row ${id === curId ? 'active' : ''}" onclick="playVideo('${id}')">
