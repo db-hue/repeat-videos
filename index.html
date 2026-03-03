@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Repeat Videos — Listen on Repeat</title>
+  <link rel="icon" type="image/svg+xml" href="logo.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <!-- Auth0 SPA SDK (PKCE — no client secret in the browser) -->
@@ -16,8 +17,8 @@
       --bg1: #111118;
       --bg2: #1a1a26;
       --bg3: #24243a;
-      --accent: #7c6af7;
-      --accent2: #a78bfa;
+      --accent: #1a9fff;
+      --accent2: #00d4ff;
       --green: #22c55e;
       --red: #ef4444;
       --text: #f0f0fa;
@@ -52,6 +53,15 @@
       -webkit-text-fill-color: transparent;
       letter-spacing: -0.5px;
       white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo-icon {
+      height: 48px;
+      width: 48px;
+      object-fit: contain;
+      flex-shrink: 0;
     }
     .tagline {
       color: var(--muted);
@@ -305,6 +315,154 @@
       cursor: pointer;
     }
 
+    /* ── Playlist Tracklist Panel ── */
+    .playlist-panel {
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      margin-top: 12px;
+      overflow: hidden;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .playlist-panel.hidden {
+      display: none;
+    }
+    .playlist-panel-header {
+      display: flex;
+      align-items: center;
+      padding: 14px 20px;
+      cursor: pointer;
+      user-select: none;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .playlist-panel-info {
+      flex: 1;
+      min-width: 0;
+    }
+    #plPanelTitle {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #plPanelCount {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .playlist-panel-chevron {
+      font-size: 0.75rem;
+      color: var(--muted);
+      transition: transform 0.2s;
+    }
+    .playlist-panel.collapsed .playlist-panel-chevron {
+      transform: rotate(-90deg);
+    }
+    .playlist-panel-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 1.1rem;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 6px;
+      line-height: 1;
+    }
+    .playlist-panel-close:hover {
+      color: var(--text);
+      background: var(--bg3);
+    }
+    .playlist-tracks {
+      max-height: 300px;
+      overflow-y: auto;
+      transition: max-height 0.25s ease;
+    }
+    .playlist-panel.collapsed .playlist-tracks {
+      max-height: 0;
+      overflow: hidden;
+    }
+    .pl-track {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .pl-track:hover {
+      background: var(--bg2);
+    }
+    .pl-track.active {
+      background: rgba(26, 159, 255, 0.10);
+      border-left: 3px solid var(--accent);
+      padding-left: 13px;
+    }
+    .pl-track-num {
+      font-size: 0.75rem;
+      color: var(--muted);
+      width: 22px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .pl-track.active .pl-track-num {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .pl-track-thumb {
+      width: 60px;
+      height: 34px;
+      border-radius: 4px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: var(--bg3);
+    }
+    .pl-track-title {
+      flex: 1;
+      font-size: 0.82rem;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+    .pl-track-title.loading {
+      color: var(--muted);
+      font-style: italic;
+    }
+    /* Custom scrollbar for playlist tracks */
+    .playlist-tracks::-webkit-scrollbar {
+      width: 6px;
+    }
+    .playlist-tracks::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .playlist-tracks::-webkit-scrollbar-thumb {
+      background: var(--bg3);
+      border-radius: 3px;
+    }
+    .playlist-tracks::-webkit-scrollbar-thumb:hover {
+      background: var(--muted);
+    }
+    @media (max-width: 580px) {
+      .playlist-tracks {
+        max-height: 200px;
+      }
+      .pl-track-thumb {
+        width: 48px;
+        height: 27px;
+      }
+      .pl-track {
+        padding: 6px 12px;
+        gap: 8px;
+      }
+      .pl-track.active {
+        padding-left: 9px;
+      }
+    }
+
     /* ── A/B Loop Bar ── */
     .ab-bar-wrap {
       padding: 0 20px 16px;
@@ -320,9 +478,9 @@
     .ab-range {
       position: absolute;
       inset: 0;
-      background: rgba(124, 106, 247, 0.18);
-      border-top: 2px solid rgba(124, 106, 247, 0.5);
-      border-bottom: 2px solid rgba(124, 106, 247, 0.5);
+      background: rgba(26, 159, 255, 0.18);
+      border-top: 2px solid rgba(26, 159, 255, 0.5);
+      border-bottom: 2px solid rgba(26, 159, 255, 0.5);
       pointer-events: none;
       border-radius: 6px;
     }
@@ -411,7 +569,7 @@
     .song-row:hover { border-color: var(--accent); }
     .song-row.active {
       border-color: var(--accent);
-      background: rgba(124, 106, 247, 0.12);
+      background: rgba(26, 159, 255, 0.12);
     }
     .thumb {
       width: 72px;
@@ -504,7 +662,7 @@
 <body>
 
 <header>
-  <div class="logo">🔁 Repeat Videos</div>
+  <div class="logo"><img src="logo.svg" alt="Logo" class="logo-icon"> REPEAT VIDEOS</div>
   <div class="tagline">YouTube videos, on infinite repeat</div>
   <div class="auth-area" id="authArea">
     <!-- Filled by initAuth() -->
@@ -554,12 +712,27 @@
     </div>
   </div>
 
+  <!-- Playlist Tracklist Panel -->
+  <div class="playlist-panel hidden" id="playlistPanel">
+    <div class="playlist-panel-header" id="plPanelHeader">
+      <div class="playlist-panel-info">
+        <div id="plPanelTitle">Playlist</div>
+        <div id="plPanelCount">0 tracks</div>
+      </div>
+      <span class="playlist-panel-chevron">▼</span>
+      <button class="playlist-panel-close" id="plPanelClose">✕</button>
+    </div>
+    <div class="playlist-tracks" id="playlistTracks"></div>
+  </div>
+
   <!-- Library -->
   <div class="lib-header">
-    <div class="lib-title">📚 My Library</div>
-    <button class="btn-danger-ghost" id="clearBtn">Clear all</button>
+    <div class="lib-title">📚 My History </div>
   </div>
   <div class="songs" id="songs"></div>
+  <div class="lib-footer" id="libFooter" style="display:none; text-align:center; padding:12px 0 20px;">
+    <button class="btn-danger-ghost" id="clearBtn">Clear all</button>
+  </div>
 
 </div>
 
@@ -595,6 +768,10 @@ let currentUser    = null;
 let serverLibCache = null;   // null = guest; object = logged-in cache
 let auth0Client    = null;
 let realmUser      = null;
+let plTracks       = [];        // [{id, title}] from player.getPlaylist()
+let plCollapsed    = false;
+let plTitleCache   = {};        // {videoId: title}
+let plBuilt        = false;     // whether we've already built the panel for the current playlist
 
 const realmApp = new Realm.App({ id: REALM_APP_ID });
 
@@ -859,6 +1036,119 @@ function updatePlaylistBtn() {
   btn.title = playlistMode ? 'Click to switch to loop mode' : 'Click to enable playlist mode';
 }
 
+// ── Playlist Tracklist Panel ────────────────────────────────────────────────
+async function fetchVideoTitle(id) {
+  if (plTitleCache[id]) return plTitleCache[id];
+  try {
+    const r = await fetch('https://noembed.com/embed?url=https://www.youtube.com/watch?v=' + id);
+    const j = await r.json();
+    if (j.title) { plTitleCache[id] = j.title; return j.title; }
+  } catch (_) {}
+  return null;
+}
+
+async function fetchTitlesBatch(ids, currentIndex) {
+  // Prioritize titles near the current track
+  const sorted = [...ids].sort((a, b) => {
+    const ai = ids.indexOf(a), bi = ids.indexOf(b);
+    return Math.abs(ai - currentIndex) - Math.abs(bi - currentIndex);
+  });
+  for (let i = 0; i < sorted.length; i += 5) {
+    const batch = sorted.slice(i, i + 5);
+    await Promise.all(batch.map(id => fetchVideoTitle(id)));
+    renderPlaylistTracks();
+  }
+}
+
+function showPlaylistPanel() {
+  document.getElementById('playlistPanel').classList.remove('hidden');
+}
+
+function hidePlaylistPanel() {
+  document.getElementById('playlistPanel').classList.add('hidden');
+}
+
+function togglePlaylistPanel() {
+  const panel = document.getElementById('playlistPanel');
+  if (panel.classList.contains('hidden')) {
+    showPlaylistPanel();
+  } else {
+    plCollapsed = !plCollapsed;
+    panel.classList.toggle('collapsed', plCollapsed);
+  }
+}
+
+function closePlaylistPanel() {
+  hidePlaylistPanel();
+}
+
+function buildPlaylistTracks(retries) {
+  retries = retries || 0;
+  try {
+    const ids = player.getPlaylist();
+    if (!ids || !ids.length) {
+      // Playlist data not ready yet — retry up to 10 times (every 500ms)
+      if (retries < 10) setTimeout(() => buildPlaylistTracks(retries + 1), 500);
+      return;
+    }
+    plTracks = ids.map(id => ({ id, title: plTitleCache[id] || null }));
+    plBuilt = true;
+    // Cache the currently playing video's title immediately
+    try {
+      const data = player.getVideoData();
+      if (data.title && data.video_id) plTitleCache[data.video_id] = data.title;
+    } catch (_) {}
+    showPlaylistPanel();
+    const idx = player.getPlaylistIndex?.() || 0;
+    document.getElementById('plPanelCount').textContent = (idx + 1) + ' / ' + ids.length + ' tracks';
+    renderPlaylistTracks();
+    fetchTitlesBatch(ids, idx);
+  } catch (_) {
+    if (retries < 10) setTimeout(() => buildPlaylistTracks(retries + 1), 500);
+  }
+}
+
+function renderPlaylistTracks() {
+  const container = document.getElementById('playlistTracks');
+  let activeIdx = -1;
+  try { activeIdx = player.getPlaylistIndex(); } catch (_) {}
+
+  container.innerHTML = plTracks.map((t, i) => {
+    const isActive = i === activeIdx;
+    const title = plTitleCache[t.id] || t.title || 'Loading…';
+    const titleClass = (plTitleCache[t.id] || t.title) ? '' : ' loading';
+    return `<div class="pl-track${isActive ? ' active' : ''}" onclick="jumpToTrack(${i})">
+      <span class="pl-track-num">${i + 1}</span>
+      <img class="pl-track-thumb" src="https://i.ytimg.com/vi/${t.id}/default.jpg" alt="" loading="lazy">
+      <span class="pl-track-title${titleClass}">${title.replace(/</g,'&lt;')}</span>
+    </div>`;
+  }).join('');
+
+  // Auto-scroll active track into view
+  const active = container.querySelector('.pl-track.active');
+  if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function jumpToTrack(index) {
+  try {
+    if (!playlistMode) {
+      playlistMode = true;
+      updatePlaylistBtn();
+    }
+    player.playVideoAt(index);
+  } catch (_) {}
+}
+
+function updatePlaylistTrackHighlight() {
+  if (!plBuilt || !plTracks.length) return;
+  try {
+    const idx = player.getPlaylistIndex();
+    document.getElementById('plPanelCount').textContent =
+      (idx + 1) + ' / ' + plTracks.length + ' tracks';
+  } catch (_) {}
+  renderPlaylistTracks();
+}
+
 function loadPlaylist(listId) {
   if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
   stopProgressUpdate();
@@ -873,6 +1163,8 @@ function loadPlaylist(listId) {
   loopA     = null;
   loopB     = null;
   sessLoops = 0;
+  plBuilt   = false;
+  plTracks  = [];
   document.getElementById('sessCount').textContent  = '0';
   document.getElementById('totalCount').textContent = '0';
   document.getElementById('vidTitle').textContent   = 'Loading playlist…';
@@ -1104,8 +1396,13 @@ function onState(e) {
           document.getElementById('totalCount').textContent = entry?.loops || 0;
           updateAbBar();
           localStorage.setItem(LAST_PLAYED_KEY, 'playlist:' + currentPlaylistId);
+          // Cache title from player data
+          if (data.title) plTitleCache[data.video_id] = data.title;
         }
       } catch (_) {}
+      // Build tracklist on first play, update highlight on subsequent plays
+      if (!plBuilt) buildPlaylistTracks();
+      else updatePlaylistTrackHighlight();
     }
 
     setTimeout(async () => {
@@ -1115,6 +1412,11 @@ function onState(e) {
         if (t) {
           curTitle = t;
           document.getElementById('vidTitle').textContent = t;
+          // Update playlist panel title cache + re-render if needed
+          if (curId && !plTitleCache[curId]) {
+            plTitleCache[curId] = t;
+            if (plBuilt) renderPlaylistTracks();
+          }
           if (serverLibCache !== null && serverLibCache[curId]?.title === 'Unknown') {
             serverLibCache[curId].title = t;
             col().updateOne(
@@ -1175,10 +1477,20 @@ function onState(e) {
 }
 
 // ── Play video ─────────────────────────────────────────────────────────────
-function playVideo(id) {
+function playVideo(id, keepPlaylist) {
   if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
   stopProgressUpdate();
   stopAbMonitor();
+
+  // Exit playlist mode when playing a standalone video
+  if (!keepPlaylist && (playlistMode || currentPlaylistId)) {
+    playlistMode = false;
+    currentPlaylistId = null;
+    plBuilt = false;
+    plTracks = [];
+    updatePlaylistBtn();
+    hidePlaylistPanel();
+  }
 
   curId     = id;
   sessLoops = 0;
@@ -1232,7 +1544,7 @@ function handlePlay() {
     currentPlaylistId = listId;
     playlistMode      = false;
     updatePlaylistBtn();
-    playVideo(vidId);
+    playVideo(vidId, true);
     toast('🎵 Playing video — tap Playlist to continue the list');
   } else if (listId) {
     loadPlaylist(listId);
@@ -1240,6 +1552,9 @@ function handlePlay() {
     currentPlaylistId = null;
     playlistMode      = false;
     updatePlaylistBtn();
+    hidePlaylistPanel();
+    plBuilt = false;
+    plTracks = [];
     playVideo(vidId);
   }
 }
@@ -1278,8 +1593,22 @@ document.getElementById('playlistBtn').addEventListener('click', function () {
     }
   }
 
+  if (playlistMode) {
+    showPlaylistPanel();
+    if (plBuilt) updatePlaylistTrackHighlight();
+  } else {
+    hidePlaylistPanel();
+  }
+
   toast(playlistMode ? '▶ Playlist mode — advancing through tracks' : '🔁 Back to loop mode');
 });
+
+// ── Playlist panel header / close button ──
+document.getElementById('plPanelHeader').addEventListener('click', (e) => {
+  if (e.target.closest('#plPanelClose')) return;
+  togglePlaylistPanel();
+});
+document.getElementById('plPanelClose').addEventListener('click', closePlaylistPanel);
 
 document.getElementById('clearBtn').addEventListener('click', async () => {
   if (!confirm('Clear your entire library?')) return;
@@ -1311,8 +1640,10 @@ function renderLib() {
         <div class="icon">🎧</div>
         <p>Songs you save will appear here with their loop counts</p>
       </div>`;
+    document.getElementById('libFooter').style.display = 'none';
     return;
   }
+  document.getElementById('libFooter').style.display = '';
 
   el.innerHTML = list.map(([id, s]) => `
     <div class="song-row ${id === curId ? 'active' : ''}" onclick="playVideo('${id}')">
