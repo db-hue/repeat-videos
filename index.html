@@ -617,6 +617,17 @@
       transition: color 0.2s;
     }
     .btn-del:hover { color: var(--red); }
+    .btn-playlist-lib {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 4px 6px;
+      border-radius: 6px;
+      transition: color 0.2s;
+    }
+    .btn-playlist-lib:hover { color: var(--accent); }
 
     /* ── Empty state ── */
     .empty {
@@ -893,6 +904,7 @@ async function loadLibraryFromAtlas() {
         addedAt: new Date(e.addedAt).getTime(),
         loopA:   e.loopA ?? null,
         loopB:   e.loopB ?? null,
+        playlistId: e.playlistId ?? null,
       };
     }
   } catch (err) {
@@ -924,10 +936,11 @@ async function offerImportFromLocalStorage() {
         addedAt: new Date(s.addedAt || Date.now()),
         loopA:   s.loopA ?? null,
         loopB:   s.loopB ?? null,
+        playlistId: s.playlistId ?? null,
       });
       serverLibCache[videoId] = {
         title: s.title || 'Unknown', loops: s.loops || 0, addedAt: s.addedAt || Date.now(),
-        loopA: s.loopA ?? null, loopB: s.loopB ?? null,
+        loopA: s.loopA ?? null, loopB: s.loopB ?? null, playlistId: s.playlistId ?? null,
       };
       imported++;
     } catch (_) {}
@@ -1436,6 +1449,7 @@ function onState(e) {
         if (!lib[curId]) {
           if (serverLibCache !== null) {
             try {
+              const _plId = currentPlaylistId || null;
               await col().insertOne({
                 owner_id: realmUser.id,
                 videoId:  curId,
@@ -1444,15 +1458,32 @@ function onState(e) {
                 addedAt:  new Date(),
                 loopA,
                 loopB,
+                playlistId: _plId,
               });
-              serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB };
+              serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, playlistId: _plId };
             } catch (_) {}
           } else {
             const lib2 = loadLib();
             if (!lib2[curId]) {
-              lib2[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB };
+              lib2[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, playlistId: currentPlaylistId || null };
               saveLib(lib2);
             }
+          }
+          renderLib();
+        } else if (currentPlaylistId && !lib[curId].playlistId) {
+          // Video already in library but now played from a playlist — attach playlistId
+          if (serverLibCache !== null) {
+            try {
+              await col().updateOne(
+                { owner_id: realmUser.id, videoId: curId },
+                { $set: { playlistId: currentPlaylistId } }
+              );
+              serverLibCache[curId].playlistId = currentPlaylistId;
+            } catch (_) {}
+          } else {
+            const lib2 = loadLib();
+            lib2[curId].playlistId = currentPlaylistId;
+            saveLib(lib2);
           }
           renderLib();
         }
@@ -1467,7 +1498,13 @@ function onState(e) {
 
   if (e.data === YT.PlayerState.ENDED && curId) {
     if (playlistMode && currentPlaylistId) {
-      player.nextVideo();
+      const pl = player.getPlaylist?.();
+      const idx = player.getPlaylistIndex?.();
+      if (pl && idx !== undefined && idx >= pl.length - 1) {
+        player.playVideoAt(0);
+      } else {
+        player.nextVideo();
+      }
     } else if (looping) {
       if (loopB === null) countLoop();
       player.seekTo(loopA ?? 0, true);
@@ -1540,12 +1577,7 @@ function handlePlay() {
   document.getElementById('urlInput').value = '';
 
   if (listId && vidId) {
-    // URL has both video and playlist — play the specific video, keep playlist available
-    currentPlaylistId = listId;
-    playlistMode      = false;
-    updatePlaylistBtn();
-    playVideo(vidId, true);
-    toast('🎵 Playing video — tap Playlist to continue the list');
+    loadPlaylist(listId);
   } else if (listId) {
     loadPlaylist(listId);
   } else {
@@ -1659,9 +1691,15 @@ function renderLib() {
         <span class="num">${s.loops || 0}</span>
         <span class="lbl">loops</span>
       </div>
+      ${s.playlistId ? `<button class="btn-playlist-lib" onclick="loadPlaylistFromLib('${s.playlistId}', event)" title="Play source playlist">▶</button>` : ''}
       <button class="btn-del" onclick="delSong('${id}', event)" title="Remove">✕</button>
     </div>
   `).join('');
+}
+
+function loadPlaylistFromLib(listId, e) {
+  e.stopPropagation();
+  loadPlaylist(listId);
 }
 
 async function delSong(id, e) {
