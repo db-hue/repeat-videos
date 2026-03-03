@@ -1227,7 +1227,14 @@ function handlePlay() {
   if (!listId && !vidId) { toast('⚠️ Could not find a YouTube video or playlist URL'); return; }
   document.getElementById('urlInput').value = '';
 
-  if (listId) {
+  if (listId && vidId) {
+    // URL has both video and playlist — play the specific video, keep playlist available
+    currentPlaylistId = listId;
+    playlistMode      = false;
+    updatePlaylistBtn();
+    playVideo(vidId);
+    toast('🎵 Playing video — tap Playlist to continue the list');
+  } else if (listId) {
     loadPlaylist(listId);
   } else {
     currentPlaylistId = null;
@@ -1253,6 +1260,24 @@ document.getElementById('playlistBtn').addEventListener('click', function () {
   if (!currentPlaylistId) { toast('Paste a YouTube playlist URL first'); return; }
   playlistMode = !playlistMode;
   updatePlaylistBtn();
+
+  if (playlistMode) {
+    // If the player doesn't have a playlist loaded yet (e.g. we played a single video
+    // from a URL that had both v= and list=), load the playlist starting at the current video
+    try {
+      const plIndex = player.getPlaylistIndex?.();
+      if (plIndex === undefined || plIndex === -1 || !player.getPlaylist?.()?.length) {
+        player.loadPlaylist({ list: currentPlaylistId, listType: 'playlist', index: 0 });
+        toast('▶ Loading playlist…');
+        return;
+      }
+    } catch (_) {
+      player.loadPlaylist({ list: currentPlaylistId, listType: 'playlist', index: 0 });
+      toast('▶ Loading playlist…');
+      return;
+    }
+  }
+
   toast(playlistMode ? '▶ Playlist mode — advancing through tracks' : '🔁 Back to loop mode');
 });
 
