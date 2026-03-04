@@ -795,6 +795,7 @@ let abInterval     = null;
 let rafId          = null;
 let pendingAutoPlay    = null;
 let isDefaultVideo     = false;
+let autoPlayDone       = false;
 let currentPlaylistId = null;
 let playlistMode      = false;
 let currentUser    = null;
@@ -1268,14 +1269,17 @@ window.onYouTubeIframeAPIReady = function () {
   player = new YT.Player('yt-player', {
     height: '100%',
     width:  '100%',
-    playerVars: { rel: 0, modestbranding: 1, autoplay: 1 },
+    playerVars: { rel: 0, modestbranding: 1 },
     events: {
       onReady: () => {
         ready = true;
-        if (!pendingAutoPlay) return;
-        const p = pendingAutoPlay; const wasDef = isDefaultVideo; pendingAutoPlay = null;
-        player.mute();
-        p.startsWith('playlist:') ? loadPlaylist(p.slice('playlist:'.length)) : playVideo(p, false, wasDef);
+        if (pendingAutoPlay) {
+          const p = pendingAutoPlay; const wasDef = isDefaultVideo; pendingAutoPlay = null;
+          player.mute();
+          p.startsWith('playlist:') ? loadPlaylist(p.slice('playlist:'.length)) : playVideo(p, false, wasDef);
+        } else {
+          tryAutoPlay();
+        }
       },
       onStateChange: onState,
       onError:       onPlayerError,
@@ -1651,6 +1655,8 @@ function playVideo(id, keepPlaylist, _isDefault) {
 }
 
 function tryAutoPlay() {
+  if (autoPlayDone) return;
+  autoPlayDone = true;
   let last = localStorage.getItem(LAST_PLAYED_KEY);
   let useDefault = false;
   if (!last) {
