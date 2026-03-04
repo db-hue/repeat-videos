@@ -794,6 +794,7 @@ let duration       = 0;
 let abInterval     = null;
 let rafId          = null;
 let pendingAutoPlay    = null;
+let isDefaultVideo     = false;
 let currentPlaylistId = null;
 let playlistMode      = false;
 let currentUser    = null;
@@ -1272,8 +1273,8 @@ window.onYouTubeIframeAPIReady = function () {
       onReady: () => {
         ready = true;
         if (!pendingAutoPlay) return;
-        const p = pendingAutoPlay; pendingAutoPlay = null;
-        p.startsWith('playlist:') ? loadPlaylist(p.slice('playlist:'.length)) : playVideo(p);
+        const p = pendingAutoPlay; const wasDef = isDefaultVideo; pendingAutoPlay = null;
+        p.startsWith('playlist:') ? loadPlaylist(p.slice('playlist:'.length)) : playVideo(p, false, wasDef);
       },
       onStateChange: onState,
       onError:       onPlayerError,
@@ -1504,7 +1505,7 @@ function onState(e) {
         }
       } catch (_) {}
 
-      if (!autoSaved && curId) {
+      if (!autoSaved && curId && !isDefaultVideo) {
         autoSaved = true;
         const lib = loadLib();
         if (!lib[curId]) {
@@ -1571,8 +1572,9 @@ function onState(e) {
 }
 
 // ── Play video ─────────────────────────────────────────────────────────────
-function playVideo(id, keepPlaylist) {
+function playVideo(id, keepPlaylist, _isDefault) {
   if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
+  isDefaultVideo = !!_isDefault;
   stopProgressUpdate();
   stopAbMonitor();
 
@@ -1607,20 +1609,27 @@ function playVideo(id, keepPlaylist) {
   ph.style.display = 'flex';
   ph.innerHTML = `<div class="big-icon" style="animation:spin 1s linear infinite">⏳</div><p>Loading…</p>`;
 
-  localStorage.setItem(LAST_PLAYED_KEY, id);
+  if (!isDefaultVideo) {
+    localStorage.setItem(LAST_PLAYED_KEY, id);
+  }
   player.loadVideoById(id, loopA ?? 0);
   renderLib();
 }
 
 function tryAutoPlay() {
-  const last = localStorage.getItem(LAST_PLAYED_KEY);
-  if (!last) return;
+  let last = localStorage.getItem(LAST_PLAYED_KEY);
+  let useDefault = false;
+  if (!last) {
+    useDefault = true;
+    last = 'xMV6l2y67rk';
+  }
   const isPlaylist = last.startsWith('playlist:');
   const id = isPlaylist ? last.slice('playlist:'.length) : last;
   if (ready && player) {
-    isPlaylist ? loadPlaylist(id) : playVideo(id);
+    isPlaylist ? loadPlaylist(id) : playVideo(id, false, useDefault);
   } else {
     pendingAutoPlay = last;
+    if (useDefault) isDefaultVideo = true;
   }
 }
 
