@@ -1018,6 +1018,14 @@ async function initAuth() {
       currentUser = await auth0Client.getUser();
       showUserInfo(currentUser);
 
+      // Track login — best-effort, fire and forget
+      api('PUT', {
+        action: 'track_login',
+        name: currentUser.name,
+        email: currentUser.email,
+        picture: currentUser.picture,
+      }).catch(err => console.warn('Login tracking failed:', err));
+
       // Backend sync — best-effort; failure falls back to localStorage
       try {
         await loadLibraryFromAtlas();

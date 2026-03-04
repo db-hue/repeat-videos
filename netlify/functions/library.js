@@ -36,13 +36,13 @@ async function verifyToken(authHeader) {
     audience: AUTH0_AUDIENCE,
     issuer:   `https://${AUTH0_DOMAIN}/`,
   });
-  return payload.sub;
+  return payload;
 }
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Content-Type':                 'application/json',
 };
 
@@ -51,16 +51,46 @@ exports.handler = async (event) => {
     return { statusCode: 204, headers: CORS, body: '' };
   }
 
-  let userId;
+  let payload;
   try {
-    userId = await verifyToken(event.headers.authorization);
+    payload = await verifyToken(event.headers.authorization);
   } catch (err) {
     console.error('Token verification failed:', err.message, err.code);
     return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: 'Unauthorized', detail: err.message }) };
   }
 
+  const userId = payload.sub;
+
   try {
     const db  = await getDb();
+
+    // PUT — track user login
+    if (event.httpMethod === 'PUT') {
+      const body = JSON.parse(event.body || '{}');
+      if (body.action === 'track_login') {
+        const users = db.collection('users');
+        const now = new Date();
+        const userAgent = event.headers['user-agent'] || '';
+        await users.updateOne(
+          { user_id: userId },
+          {
+            $setOnInsert: { user_id: userId, first_login: now },
+            $set: {
+              email: body.email || payload.email || null,
+              name: body.name || null,
+              picture: body.picture || null,
+              last_login: now,
+              last_user_agent: userAgent,
+            },
+            $inc: { login_count: 1 },
+          },
+          { upsert: true }
+        );
+        return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true }) };
+      }
+      return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'Unknown action' }) };
+    }
+
     const col = db.collection('library');
 
     // GET — return all library entries for this user
