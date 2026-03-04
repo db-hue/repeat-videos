@@ -1234,7 +1234,7 @@ function updatePlaylistTrackHighlight() {
 }
 
 function loadPlaylist(listId) {
-  if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
+  if (!ready || !player) { pendingAutoPlay = 'playlist:' + listId; toast('⏳ Player loading, will play shortly…'); return; }
   stopProgressUpdate();
   stopAbMonitor();
 
@@ -1607,7 +1607,7 @@ function onState(e) {
 
 // ── Play video ─────────────────────────────────────────────────────────────
 function playVideo(id, keepPlaylist, _isDefault) {
-  if (!ready || !player) { toast('⏳ Player not ready yet, try again'); return; }
+  if (!ready || !player) { pendingAutoPlay = id; toast('⏳ Player loading, will play shortly…'); return; }
   isDefaultVideo = !!_isDefault;
   stopProgressUpdate();
   stopAbMonitor();
