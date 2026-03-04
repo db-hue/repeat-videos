@@ -1382,13 +1382,31 @@ function stopAbMonitor() {
 
 function saveAbToLib() {
   if (!curId) return;
-  if (serverLibCache !== null && serverLibCache[curId]) {
-    serverLibCache[curId].loopA = loopA;
-    serverLibCache[curId].loopB = loopB;
-    api('PATCH', { videoId: curId, loopA, loopB }).catch(() => {});
-  } else if (serverLibCache === null) {
+  // Setting A/B points is an explicit user action — clear default flag and persist
+  if (isDefaultVideo) {
+    isDefaultVideo = false;
+    localStorage.setItem(LAST_PLAYED_KEY, curId);
+  }
+  if (serverLibCache !== null) {
+    if (serverLibCache[curId]) {
+      serverLibCache[curId].loopA = loopA;
+      serverLibCache[curId].loopB = loopB;
+      api('PATCH', { videoId: curId, loopA, loopB }).catch(() => {});
+    } else {
+      const _plId = currentPlaylistId || null;
+      api('POST', { videoId: curId, title: curTitle || 'Unknown', loops: 0, addedAt: new Date().toISOString(), loopA, loopB, playlistId: _plId }).catch(() => {});
+      serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, playlistId: _plId };
+      renderLib();
+    }
+  } else {
     const lib = loadLib();
-    if (lib[curId]) { lib[curId].loopA = loopA; lib[curId].loopB = loopB; saveLib(lib); }
+    if (lib[curId]) {
+      lib[curId].loopA = loopA; lib[curId].loopB = loopB; saveLib(lib);
+    } else {
+      lib[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, playlistId: currentPlaylistId || null };
+      saveLib(lib);
+      renderLib();
+    }
   }
 }
 
