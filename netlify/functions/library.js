@@ -48,8 +48,9 @@ exports.handler = async (event) => {
   let userId;
   try {
     userId = await verifyToken(event.headers.authorization);
-  } catch {
-    return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: 'Unauthorized' }) };
+  } catch (err) {
+    console.error('Token verification failed:', err.message, err.code);
+    return { statusCode: 401, headers: CORS, body: JSON.stringify({ error: 'Unauthorized', detail: err.message }) };
   }
 
   try {

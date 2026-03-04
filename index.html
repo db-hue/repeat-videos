@@ -819,7 +819,11 @@ async function api(method, body) {
   };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(API_URL, opts);
-  if (!res.ok) throw new Error(`API ${res.status}`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    console.error(`API ${res.status}:`, detail);
+    throw new Error(`API ${res.status}`);
+  }
   return res.json();
 }
 
@@ -941,8 +945,9 @@ async function loadLibraryFromAtlas() {
     }
   } catch (err) {
     console.error('Library load failed:', err);
-    serverLibCache = {};
+    serverLibCache = null;
     toast('⚠️ Could not load library.');
+    throw err;   // let initAuth() handle the fallback
   }
   lastLibRefresh = Date.now();
   renderLib();
