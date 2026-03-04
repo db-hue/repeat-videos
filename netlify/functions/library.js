@@ -11,6 +11,12 @@ let jwks        = null;
 async function getDb() {
   if (!mongoClient) {
     mongoClient = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
+  }
+  // Ping to check if the connection is still alive; reconnect if stale
+  try {
+    await mongoClient.db('admin').command({ ping: 1 });
+  } catch {
+    mongoClient = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
     await mongoClient.connect();
   }
   return mongoClient.db('repeat-videos');
@@ -113,6 +119,6 @@ exports.handler = async (event) => {
     return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method not allowed' }) };
   } catch (err) {
     console.error('library function error:', err);
-    return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: 'Internal error' }) };
+    return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: 'Internal error', detail: err.message }) };
   }
 };
