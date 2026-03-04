@@ -1624,7 +1624,12 @@ function handlePlay() {
   document.getElementById('urlInput').value = '';
 
   if (listId && vidId) {
-    loadPlaylist(listId);
+    // Play the specific video first, keep playlist context for later
+    currentPlaylistId = listId;
+    playlistMode      = false;
+    updatePlaylistBtn();
+    playVideo(vidId);
+    return;
   } else if (listId) {
     loadPlaylist(listId);
   } else {
