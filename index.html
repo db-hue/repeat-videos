@@ -1268,12 +1268,13 @@ window.onYouTubeIframeAPIReady = function () {
   player = new YT.Player('yt-player', {
     height: '100%',
     width:  '100%',
-    playerVars: { rel: 0, modestbranding: 1 },
+    playerVars: { rel: 0, modestbranding: 1, autoplay: 1 },
     events: {
       onReady: () => {
         ready = true;
         if (!pendingAutoPlay) return;
         const p = pendingAutoPlay; const wasDef = isDefaultVideo; pendingAutoPlay = null;
+        player.mute();
         p.startsWith('playlist:') ? loadPlaylist(p.slice('playlist:'.length)) : playVideo(p, false, wasDef);
       },
       onStateChange: onState,
@@ -1281,6 +1282,21 @@ window.onYouTubeIframeAPIReady = function () {
     },
   });
 };
+
+// Unmute after first user interaction (browser autoplay policy requires muted start)
+(function () {
+  function unmuteOnInteraction() {
+    if (player && player.isMuted && player.isMuted()) {
+      player.unMute();
+    }
+    document.removeEventListener('click', unmuteOnInteraction);
+    document.removeEventListener('keydown', unmuteOnInteraction);
+    document.removeEventListener('touchstart', unmuteOnInteraction);
+  }
+  document.addEventListener('click', unmuteOnInteraction);
+  document.addEventListener('keydown', unmuteOnInteraction);
+  document.addEventListener('touchstart', unmuteOnInteraction);
+})();
 
 function onPlayerError(e) {
   const reasons = {
@@ -1629,8 +1645,6 @@ function playVideo(id, keepPlaylist, _isDefault) {
 
   if (!isDefaultVideo) {
     localStorage.setItem(LAST_PLAYED_KEY, id);
-  } else {
-    player.mute();
   }
   player.loadVideoById(id, loopA ?? 0);
   renderLib();
@@ -1646,6 +1660,7 @@ function tryAutoPlay() {
   const isPlaylist = last.startsWith('playlist:');
   const id = isPlaylist ? last.slice('playlist:'.length) : last;
   if (ready && player) {
+    player.mute();
     isPlaylist ? loadPlaylist(id) : playVideo(id, false, useDefault);
   } else {
     pendingAutoPlay = last;
