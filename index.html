@@ -1265,7 +1265,8 @@ function loadPlaylist(listId) {
 }
 
 // ── YouTube IFrame API ─────────────────────────────────────────────────────
-window.onYouTubeIframeAPIReady = function () {
+function createPlayer() {
+  if (player) return;                       // already created
   player = new YT.Player('yt-player', {
     height: '100%',
     width:  '100%',
@@ -1285,7 +1286,10 @@ window.onYouTubeIframeAPIReady = function () {
       onError:       onPlayerError,
     },
   });
-};
+}
+window.onYouTubeIframeAPIReady = createPlayer;
+// If the API loaded before we defined the callback (cached F5 reload), create now
+if (typeof YT !== 'undefined' && YT.Player) createPlayer();
 
 // Unmute after first user interaction (browser autoplay policy requires muted start)
 (function () {
