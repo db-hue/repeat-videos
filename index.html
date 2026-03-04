@@ -1611,6 +1611,8 @@ function playVideo(id, keepPlaylist, _isDefault) {
 
   if (!isDefaultVideo) {
     localStorage.setItem(LAST_PLAYED_KEY, id);
+  } else {
+    player.mute();
   }
   player.loadVideoById(id, loopA ?? 0);
   renderLib();
