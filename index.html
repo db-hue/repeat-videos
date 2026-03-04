@@ -1624,11 +1624,16 @@ function handlePlay() {
   document.getElementById('urlInput').value = '';
 
   if (listId && vidId) {
-    // Play the specific video first, keep playlist context for later
-    currentPlaylistId = listId;
-    playlistMode      = false;
-    updatePlaylistBtn();
-    playVideo(vidId);
+    if (listId.startsWith('RD')) {
+      // Radio/Mix playlists: play the specific video, keep playlist context
+      currentPlaylistId = listId;
+      playlistMode      = false;
+      updatePlaylistBtn();
+      playVideo(vidId);
+      return;
+    }
+    // Regular playlists: load the full playlist
+    loadPlaylist(listId);
     return;
   } else if (listId) {
     loadPlaylist(listId);
