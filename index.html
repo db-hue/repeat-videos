@@ -1609,6 +1609,15 @@ function onState(e) {
       if (loopB === null) countLoop();
       player.seekTo(loopA ?? 0, true);
       player.playVideo();
+    } else {
+      // Loop is off & not in playlist — play next song from library
+      const lib = loadLib();
+      const sorted = Object.entries(lib).sort((a, b) => b[1].addedAt - a[1].addedAt);
+      const idx = sorted.findIndex(([id]) => id === curId);
+      if (sorted.length > 1) {
+        const nextIdx = (idx + 1) % sorted.length;
+        playVideo(sorted[nextIdx][0]);
+      }
     }
   }
 }
