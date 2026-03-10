@@ -961,14 +961,28 @@ async function offerImportFromLocalStorage() {
   const local = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
   const count = Object.keys(local).length;
   if (!count) return;
+
+  // Count only videos not already on the server
+  const toImport = Object.entries(local).filter(([id]) => !serverLibCache[id]);
+  if (!toImport.length) {
+    // All local videos already exist on server — clear localStorage silently
+    localStorage.removeItem(STORE_KEY);
+    return;
+  }
+
   const yes = confirm(
-    `You have ${count} video${count === 1 ? '' : 's'} saved locally. ` +
-    `Import ${count === 1 ? 'it' : 'them'} into your account?`
+    `You have ${toImport.length} video${toImport.length === 1 ? '' : 's'} saved locally. ` +
+    `Import ${toImport.length === 1 ? 'it' : 'them'} into your account?`
   );
-  if (!yes) return;
+  if (!yes) {
+    // User declined — clear localStorage so the dialog doesn't reappear
+    localStorage.removeItem(STORE_KEY);
+    return;
+  }
+
   let imported = 0;
-  for (const [videoId, s] of Object.entries(local)) {
-    if (serverLibCache[videoId]) continue;
+  const failed = {};
+  for (const [videoId, s] of toImport) {
     try {
       await api('POST', {
         videoId,
@@ -984,12 +998,23 @@ async function offerImportFromLocalStorage() {
         loopA: s.loopA ?? null, loopB: s.loopB ?? null, playlistId: s.playlistId ?? null,
       };
       imported++;
-    } catch (_) {}
+    } catch (_) {
+      failed[videoId] = s;   // keep failed videos for retry
+    }
   }
-  if (imported > 0) {
+
+  if (Object.keys(failed).length) {
+    // Only keep failed videos in localStorage for next retry
+    localStorage.setItem(STORE_KEY, JSON.stringify(failed));
+  } else {
     localStorage.removeItem(STORE_KEY);
+  }
+
+  if (imported > 0) {
     renderLib();
     toast(`✅ Imported ${imported} video${imported === 1 ? '' : 's'}!`);
+  } else {
+    toast('⚠️ Import failed — will retry next login.');
   }
 }
 
@@ -1265,6 +1290,8 @@ function loadPlaylist(listId) {
 }
 
 // ── YouTube IFrame API ─────────────────────────────────────────────────────
+let autoPlayMuted = false;   // tracks whether autoplay fell back to muted
+
 function createPlayer() {
   if (player) return;                       // already created
   player = new YT.Player('yt-player', {
@@ -1276,7 +1303,7 @@ function createPlayer() {
         ready = true;
         if (pendingAutoPlay) {
           const p = pendingAutoPlay; const wasDef = isDefaultVideo; pendingAutoPlay = null;
-          player.mute();
+          // Try unmuted autoplay first
           p.startsWith('playlist:') ? loadPlaylist(p.slice('playlist:'.length)) : playVideo(p, false, wasDef);
         } else {
           tryAutoPlay();
@@ -1291,11 +1318,12 @@ window.onYouTubeIframeAPIReady = createPlayer;
 // If the API loaded before we defined the callback (cached F5 reload), create now
 if (typeof YT !== 'undefined' && YT.Player) createPlayer();
 
-// Unmute after first user interaction (browser autoplay policy requires muted start)
+// If autoplay had to fall back to muted, unmute on first user interaction
 (function () {
   function unmuteOnInteraction() {
-    if (player && player.isMuted && player.isMuted()) {
+    if (autoPlayMuted && player && player.isMuted && player.isMuted()) {
       player.unMute();
+      autoPlayMuted = false;
     }
     document.removeEventListener('click', unmuteOnInteraction);
     document.removeEventListener('keydown', unmuteOnInteraction);
@@ -1497,6 +1525,11 @@ function onState(e) {
   if (e.data === YT.PlayerState.PLAYING) {
     document.getElementById('placeholder').style.display = 'none';
     try { if (!duration) { duration = player.getDuration(); updateAbBar(); } } catch (_) {}
+    // Set max available quality
+    try {
+      const levels = player.getAvailableQualityLevels();
+      if (levels && levels.length) player.setPlaybackQuality(levels[0]);
+    } catch (_) {}
     startProgressUpdate();
     if (!playlistMode) startAbMonitor();
 
@@ -1594,9 +1627,21 @@ function onState(e) {
   if (e.data === YT.PlayerState.PAUSED) {
     stopProgressUpdate();
     stopAbMonitor();
+    // Browser blocked unmuted autoplay — fall back to muted playback
+    if (!autoPlayMuted && player && player.getCurrentTime && player.getCurrentTime() < 0.5) {
+      try {
+        if (!player.isMuted()) {
+          autoPlayMuted = true;
+          player.mute();
+          player.playVideo();
+        }
+      } catch (_) {}
+    }
   }
 
   if (e.data === YT.PlayerState.ENDED && curId) {
+    // Count a completed play-through regardless of loop mode
+    countLoop();
     if (playlistMode && currentPlaylistId) {
       const pl = player.getPlaylist?.();
       const idx = player.getPlaylistIndex?.();
@@ -1606,7 +1651,6 @@ function onState(e) {
         player.nextVideo();
       }
     } else if (looping) {
-      if (loopB === null) countLoop();
       player.seekTo(loopA ?? 0, true);
       player.playVideo();
     } else {
@@ -1679,7 +1723,7 @@ function tryAutoPlay() {
   const isPlaylist = last.startsWith('playlist:');
   const id = isPlaylist ? last.slice('playlist:'.length) : last;
   if (ready && player) {
-    player.mute();
+    // Try unmuted autoplay; browser may block it — handled in onState fallback
     isPlaylist ? loadPlaylist(id) : playVideo(id, false, useDefault);
   } else {
     pendingAutoPlay = last;

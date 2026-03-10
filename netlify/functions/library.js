@@ -8,6 +8,8 @@ const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE || 'https://api.repeat-videos.
 let mongoClient = null;
 let jwks        = null;
 
+let indexesEnsured = false;
+
 async function getDb() {
   if (!mongoClient) {
     mongoClient = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
@@ -19,7 +21,16 @@ async function getDb() {
     mongoClient = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
     await mongoClient.connect();
   }
-  return mongoClient.db('repeat-videos');
+  const db = mongoClient.db('repeat-videos');
+  // Ensure unique index on (owner_id, videoId) — idempotent, runs once per cold start
+  if (!indexesEnsured) {
+    indexesEnsured = true;
+    db.collection('library').createIndex(
+      { owner_id: 1, videoId: 1 },
+      { unique: true, background: true }
+    ).catch(err => console.warn('Index creation skipped:', err.message));
+  }
+  return db;
 }
 
 function getJWKS() {
@@ -95,7 +106,7 @@ exports.handler = async (event) => {
 
     // GET — return all library entries for this user
     if (event.httpMethod === 'GET') {
-      const docs = await col.find({ owner_id: userId }, { projection: { _id: 0 } }).toArray();
+      const docs = await col.find({ owner_id: userId }, { projection: { _id: 0, owner_id: 0 } }).toArray();
       return { statusCode: 200, headers: CORS, body: JSON.stringify(docs) };
     }
 
