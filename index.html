@@ -736,8 +736,8 @@
 
     <div class="player-meta">
       <div class="vid-title" id="vidTitle">No video selected</div>
-      <div class="badge">Session &nbsp;<b id="sessCount">0</b>&nbsp;loops</div>
-      <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;loops</div>
+      <div class="badge">Session &nbsp;<b id="sessCount">0</b>&nbsp;counter</div>
+      <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
       <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
       <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
     </div>
@@ -942,6 +942,7 @@ async function loadLibraryFromAtlas() {
         title:   e.title,
         loops:   e.loops || 0,
         addedAt: new Date(e.addedAt).getTime(),
+        lastPlayedAt: e.lastPlayedAt ? new Date(e.lastPlayedAt).getTime() : null,
         loopA:   e.loopA ?? null,
         loopB:   e.loopB ?? null,
         playlistId: e.playlistId ?? null,
@@ -957,26 +958,29 @@ async function loadLibraryFromAtlas() {
   renderLib();
 }
 
-async function offerImportFromLocalStorage() {
+async function importFromLocalStorage() {
   const local = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
   const count = Object.keys(local).length;
   if (!count) return;
 
-  // Count only videos not already on the server
+  // Import videos not already on the server; merge loops for existing ones
   const toImport = Object.entries(local).filter(([id]) => !serverLibCache[id]);
-  if (!toImport.length) {
-    // All local videos already exist on server — clear localStorage silently
-    localStorage.removeItem(STORE_KEY);
-    return;
+  const toMerge  = Object.entries(local).filter(([id]) => serverLibCache[id]);
+
+  // Merge local play counts and lastPlayedAt into existing server entries
+  for (const [videoId, s] of toMerge) {
+    const srv = serverLibCache[videoId];
+    const localPlayed = s.lastPlayedAt || s.addedAt || 0;
+    const srvPlayed   = srv.lastPlayedAt || srv.addedAt || 0;
+    if (localPlayed > srvPlayed) {
+      srv.lastPlayedAt = localPlayed;
+      api('PATCH', { videoId, lastPlayedAt: new Date(localPlayed).toISOString() }).catch(() => {});
+    }
   }
 
-  const yes = confirm(
-    `You have ${toImport.length} video${toImport.length === 1 ? '' : 's'} saved locally. ` +
-    `Import ${toImport.length === 1 ? 'it' : 'them'} into your account?`
-  );
-  if (!yes) {
-    // User declined — clear localStorage so the dialog doesn't reappear
+  if (!toImport.length) {
     localStorage.removeItem(STORE_KEY);
+    if (toMerge.length) renderLib();
     return;
   }
 
@@ -984,17 +988,21 @@ async function offerImportFromLocalStorage() {
   const failed = {};
   for (const [videoId, s] of toImport) {
     try {
+      const _addedAt = s.addedAt || Date.now();
+      const _lastPlayed = s.lastPlayedAt || _addedAt;
       await api('POST', {
         videoId,
         title:   s.title || 'Unknown',
         loops:   s.loops || 0,
-        addedAt: new Date(s.addedAt || Date.now()).toISOString(),
+        addedAt: new Date(_addedAt).toISOString(),
+        lastPlayedAt: new Date(_lastPlayed).toISOString(),
         loopA:   s.loopA ?? null,
         loopB:   s.loopB ?? null,
         playlistId: s.playlistId ?? null,
       });
       serverLibCache[videoId] = {
-        title: s.title || 'Unknown', loops: s.loops || 0, addedAt: s.addedAt || Date.now(),
+        title: s.title || 'Unknown', loops: s.loops || 0, addedAt: _addedAt,
+        lastPlayedAt: _lastPlayed,
         loopA: s.loopA ?? null, loopB: s.loopB ?? null, playlistId: s.playlistId ?? null,
       };
       imported++;
@@ -1004,7 +1012,6 @@ async function offerImportFromLocalStorage() {
   }
 
   if (Object.keys(failed).length) {
-    // Only keep failed videos in localStorage for next retry
     localStorage.setItem(STORE_KEY, JSON.stringify(failed));
   } else {
     localStorage.removeItem(STORE_KEY);
@@ -1013,8 +1020,6 @@ async function offerImportFromLocalStorage() {
   if (imported > 0) {
     renderLib();
     toast(`✅ Imported ${imported} video${imported === 1 ? '' : 's'}!`);
-  } else {
-    toast('⚠️ Import failed — will retry next login.');
   }
 }
 
@@ -1059,7 +1064,7 @@ async function initAuth() {
       try {
         await loadLibraryFromAtlas();
         startPolling();
-        await offerImportFromLocalStorage();
+        await importFromLocalStorage();
       } catch (syncErr) {
         console.error('Backend sync failed, falling back to localStorage:', syncErr);
         serverLibCache = null;
@@ -1399,14 +1404,17 @@ function stopProgressUpdate() {
 function countLoop() {
   sessLoops++;
   document.getElementById('sessCount').textContent = sessLoops;
+  const now = Date.now();
   if (serverLibCache !== null && serverLibCache[curId]) {
     serverLibCache[curId].loops = (serverLibCache[curId].loops || 0) + 1;
+    serverLibCache[curId].lastPlayedAt = now;
     document.getElementById('totalCount').textContent = serverLibCache[curId].loops;
-    api('PATCH', { videoId: curId, incLoops: true }).catch(() => {});
+    api('PATCH', { videoId: curId, incLoops: true, lastPlayedAt: new Date(now).toISOString() }).catch(() => {});
   } else {
     const lib = loadLib();
     if (lib[curId]) {
       lib[curId].loops = (lib[curId].loops || 0) + 1;
+      lib[curId].lastPlayedAt = now;
       saveLib(lib);
       document.getElementById('totalCount').textContent = lib[curId].loops;
     }
@@ -1587,21 +1595,24 @@ function onState(e) {
           if (serverLibCache !== null) {
             try {
               const _plId = currentPlaylistId || null;
+              const _now = Date.now();
               await api('POST', {
                 videoId:  curId,
                 title:    curTitle || 'Unknown',
                 loops:    0,
-                addedAt:  new Date().toISOString(),
+                addedAt:  new Date(_now).toISOString(),
+                lastPlayedAt: new Date(_now).toISOString(),
                 loopA,
                 loopB,
                 playlistId: _plId,
               });
-              serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, playlistId: _plId };
+              serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: _now, lastPlayedAt: _now, loopA, loopB, playlistId: _plId };
             } catch (_) {}
           } else {
             const lib2 = loadLib();
             if (!lib2[curId]) {
-              lib2[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, playlistId: currentPlaylistId || null };
+              const _now2 = Date.now();
+              lib2[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: _now2, lastPlayedAt: _now2, loopA, loopB, playlistId: currentPlaylistId || null };
               saveLib(lib2);
             }
           }
@@ -1656,7 +1667,7 @@ function onState(e) {
     } else {
       // Loop is off & not in playlist — play next song from library
       const lib = loadLib();
-      const sorted = Object.entries(lib).sort((a, b) => b[1].addedAt - a[1].addedAt);
+      const sorted = Object.entries(lib).sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt));
       const idx = sorted.findIndex(([id]) => id === curId);
       if (sorted.length > 1) {
         const nextIdx = (idx + 1) % sorted.length;
@@ -1695,6 +1706,18 @@ function playVideo(id, keepPlaylist, _isDefault) {
   loopA = entry?.loopA ?? null;
   loopB = entry?.loopB ?? null;
   updateAbBar();
+
+  // Update lastPlayedAt for existing entries
+  if (entry && !_isDefault) {
+    const now = Date.now();
+    if (serverLibCache !== null && serverLibCache[id]) {
+      serverLibCache[id].lastPlayedAt = now;
+      api('PATCH', { videoId: id, lastPlayedAt: new Date(now).toISOString() }).catch(() => {});
+    } else {
+      entry.lastPlayedAt = now;
+      saveLib(lib);
+    }
+  }
 
   const total = entry ? (entry.loops || 0) : 0;
   document.getElementById('totalCount').textContent = total;
@@ -1838,13 +1861,13 @@ document.getElementById('clearBtn').addEventListener('click', async () => {
 function renderLib() {
   const el   = document.getElementById('songs');
   const lib  = loadLib();
-  const list = Object.entries(lib).sort((a, b) => b[1].addedAt - a[1].addedAt);
+  const list = Object.entries(lib).sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt));
 
   if (!list.length) {
     el.innerHTML = `
       <div class="empty">
         <div class="icon">🎧</div>
-        <p>Songs you save will appear here with their loop counts</p>
+        <p>Songs you save will appear here with their play counts</p>
       </div>`;
     document.getElementById('libFooter').style.display = 'none';
     return;
@@ -1860,11 +1883,11 @@ function renderLib() {
            onerror="this.style.visibility='hidden'" />
       <div class="song-info">
         <div class="song-name">${esc(s.title)}</div>
-        <div class="song-date">${fmtDate(s.addedAt)}</div>
+        <div class="song-date">${fmtDate(s.lastPlayedAt || s.addedAt)}</div>
       </div>
       <div class="loop-count">
         <span class="num">${s.loops || 0}</span>
-        <span class="lbl">loops</span>
+        <span class="lbl">counter</span>
       </div>
       ${s.playlistId ? `<button class="btn-playlist-lib" onclick="loadPlaylistFromLib('${s.playlistId}', event)" title="Play source playlist">▶<span class="playlist-lib-label">Start playlist</span></button>` : ''}
       <button class="btn-del" onclick="delSong('${id}', event)" title="Remove">🗑️</button>
