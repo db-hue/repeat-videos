@@ -1299,7 +1299,6 @@ function loadPlaylist(listId) {
 }
 
 // ── YouTube IFrame API ─────────────────────────────────────────────────────
-let autoPlayMuted = false;   // tracks whether autoplay fell back to muted
 
 function createPlayer() {
   if (player) return;                       // already created
@@ -1327,21 +1326,6 @@ window.onYouTubeIframeAPIReady = createPlayer;
 // If the API loaded before we defined the callback (cached F5 reload), create now
 if (typeof YT !== 'undefined' && YT.Player) createPlayer();
 
-// If autoplay had to fall back to muted, unmute on first user interaction
-(function () {
-  function unmuteOnInteraction() {
-    if (autoPlayMuted && player && player.isMuted && player.isMuted()) {
-      player.unMute();
-      autoPlayMuted = false;
-    }
-    document.removeEventListener('click', unmuteOnInteraction);
-    document.removeEventListener('keydown', unmuteOnInteraction);
-    document.removeEventListener('touchstart', unmuteOnInteraction);
-  }
-  document.addEventListener('click', unmuteOnInteraction);
-  document.addEventListener('keydown', unmuteOnInteraction);
-  document.addEventListener('touchstart', unmuteOnInteraction);
-})();
 
 function onPlayerError(e) {
   const reasons = {
@@ -1642,16 +1626,6 @@ function onState(e) {
   if (e.data === YT.PlayerState.PAUSED) {
     stopProgressUpdate();
     stopAbMonitor();
-    // Browser blocked unmuted autoplay — fall back to muted playback
-    if (!autoPlayMuted && player && player.getCurrentTime && player.getCurrentTime() < 0.5) {
-      try {
-        if (!player.isMuted()) {
-          autoPlayMuted = true;
-          player.mute();
-          player.playVideo();
-        }
-      } catch (_) {}
-    }
   }
 
   if (e.data === YT.PlayerState.ENDED && curId) {
