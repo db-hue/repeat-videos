@@ -1393,19 +1393,29 @@ function countLoop() {
   sessLoops++;
   document.getElementById('sessCount').textContent = sessLoops;
   const now = Date.now();
-  if (serverLibCache !== null && serverLibCache[curId]) {
+  if (serverLibCache !== null) {
+    if (!serverLibCache[curId]) {
+      // Entry not yet saved — create it now so the count isn't lost
+      const _plId = currentPlaylistId || null;
+      serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: now, lastPlayedAt: now, loopA, loopB, playlistId: _plId };
+      api('POST', { videoId: curId, title: curTitle || 'Unknown', loops: 0, addedAt: new Date(now).toISOString(), lastPlayedAt: new Date(now).toISOString(), loopA, loopB, playlistId: _plId }).catch(() => {});
+      autoSaved = true;
+    }
     serverLibCache[curId].loops = (serverLibCache[curId].loops || 0) + 1;
     serverLibCache[curId].lastPlayedAt = now;
     document.getElementById('totalCount').textContent = serverLibCache[curId].loops;
     api('PATCH', { videoId: curId, incLoops: true, lastPlayedAt: new Date(now).toISOString() }).catch(() => {});
   } else {
     const lib = loadLib();
-    if (lib[curId]) {
-      lib[curId].loops = (lib[curId].loops || 0) + 1;
-      lib[curId].lastPlayedAt = now;
-      saveLib(lib);
-      document.getElementById('totalCount').textContent = lib[curId].loops;
+    if (!lib[curId]) {
+      // Entry not yet saved — create it now
+      lib[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: now, lastPlayedAt: now, loopA, loopB, playlistId: currentPlaylistId || null };
+      autoSaved = true;
     }
+    lib[curId].loops = (lib[curId].loops || 0) + 1;
+    lib[curId].lastPlayedAt = now;
+    saveLib(lib);
+    document.getElementById('totalCount').textContent = lib[curId].loops;
   }
   renderLib();
 }
