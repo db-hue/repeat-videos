@@ -1585,13 +1585,17 @@ function onState(e) {
           curTitle  = data.title || '';
           autoSaved = false;
           duration  = player.getDuration() || 0;
-          loopA = null; loopB = null;
           sessLoops = 0;
           document.getElementById('sessCount').textContent = '0';
           const lib   = loadLib();
           const entry = lib[curId];
+          loopA = entry?.loopA ?? null;
+          loopB = entry?.loopB ?? null;
           document.getElementById('totalCount').textContent = entry?.loops || 0;
           updateAbBar();
+          // Seek to boundary A and restart A/B monitor with restored boundaries
+          if (loopA) { try { player.seekTo(loopA, true); } catch (_) {} }
+          startAbMonitor();
           localStorage.setItem(LAST_PLAYED_KEY, 'playlist:' + currentPlaylistId);
           // Cache title from player data
           if (data.title) plTitleCache[data.video_id] = data.title;
