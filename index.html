@@ -1425,11 +1425,18 @@ function startAbMonitor() {
   stopAbMonitor();
   if (loopB === null) return;
   abInterval = setInterval(() => {
-    if (!player || !curId || !looping) return;
+    if (!player || !curId) return;
     try {
       if (player.getCurrentTime() >= loopB - 0.15) {
+        lastCountedEnd = { id: curId, time: Date.now() };
         countLoop();
-        player.seekTo(loopA ?? 0, true);
+        if (looping) {
+          player.seekTo(loopA ?? 0, true);
+        } else {
+          // Boundary reached with loop off — advance to next video
+          stopAbMonitor();
+          advanceToNext();
+        }
       }
     } catch (_) {}
   }, 200);
@@ -1526,6 +1533,31 @@ function initAbBar() {
     if (e.target.classList.contains('ab-handle')) return;
     player.seekTo(pctFromEvent(e) * duration, true);
   });
+}
+
+function advanceToNext() {
+  if (playlistMode && currentPlaylistId) {
+    const pl = player.getPlaylist?.();
+    const idx = player.getPlaylistIndex?.();
+    if (pl && idx !== undefined && idx >= pl.length - 1) {
+      player.playVideoAt(0);
+    } else {
+      player.nextVideo();
+    }
+  } else {
+    // Play next song from library queue
+    if (!libQueue) {
+      const lib = loadLib();
+      libQueue = Object.entries(lib)
+        .sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt))
+        .map(([id]) => id);
+      libQueueIdx = libQueue.indexOf(curId);
+    }
+    if (libQueue.length > 1) {
+      libQueueIdx = (libQueueIdx + 1) % libQueue.length;
+      playVideo(libQueue[libQueueIdx], false, false, true);
+    }
+  }
 }
 
 function onState(e) {
@@ -1645,34 +1677,14 @@ function onState(e) {
   }
 
   if (e.data === YT.PlayerState.ENDED && curId) {
-    // Count a completed play-through — skip if already counted via playlist track change
+    // Count a completed play-through — skip if already counted via playlist track change or A/B boundary
     const alreadyCounted = lastCountedEnd && lastCountedEnd.id === curId && (Date.now() - lastCountedEnd.time) < 2000;
     if (!alreadyCounted) countLoop();
-    if (playlistMode && currentPlaylistId) {
-      const pl = player.getPlaylist?.();
-      const idx = player.getPlaylistIndex?.();
-      if (pl && idx !== undefined && idx >= pl.length - 1) {
-        player.playVideoAt(0);
-      } else {
-        player.nextVideo();
-      }
-    } else if (looping) {
+    if (looping) {
       player.seekTo(loopA ?? 0, true);
       player.playVideo();
     } else {
-      // Loop is off & not in playlist — play next song from library queue
-      if (!libQueue) {
-        // Snapshot the current library order once
-        const lib = loadLib();
-        libQueue = Object.entries(lib)
-          .sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt))
-          .map(([id]) => id);
-        libQueueIdx = libQueue.indexOf(curId);
-      }
-      if (libQueue.length > 1) {
-        libQueueIdx = (libQueueIdx + 1) % libQueue.length;
-        playVideo(libQueue[libQueueIdx], false, false, true);
-      }
+      advanceToNext();
     }
   }
 }
