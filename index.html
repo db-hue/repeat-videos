@@ -798,6 +798,8 @@ let isDefaultVideo     = false;
 let autoPlayDone       = false;
 let currentPlaylistId = null;
 let playlistMode      = false;
+let libQueue       = null;    // snapshotted library play order (array of videoIds)
+let libQueueIdx    = -1;     // current position in libQueue
 let currentUser    = null;
 let serverLibCache = null;   // null = guest; object = logged-in cache
 let lastLibRefresh = 0;
@@ -1271,6 +1273,8 @@ function loadPlaylist(listId) {
 
   currentPlaylistId = listId;
   playlistMode      = true;
+  libQueue  = null;
+  libQueueIdx = -1;
   curId     = null;
   curTitle  = '';
   autoSaved = false;
@@ -1665,24 +1669,32 @@ function onState(e) {
       player.seekTo(loopA ?? 0, true);
       player.playVideo();
     } else {
-      // Loop is off & not in playlist — play next song from library
-      const lib = loadLib();
-      const sorted = Object.entries(lib).sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt));
-      const idx = sorted.findIndex(([id]) => id === curId);
-      if (sorted.length > 1) {
-        const nextIdx = (idx + 1) % sorted.length;
-        playVideo(sorted[nextIdx][0]);
+      // Loop is off & not in playlist — play next song from library queue
+      if (!libQueue) {
+        // Snapshot the current library order once
+        const lib = loadLib();
+        libQueue = Object.entries(lib)
+          .sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt))
+          .map(([id]) => id);
+        libQueueIdx = libQueue.indexOf(curId);
+      }
+      if (libQueue.length > 1) {
+        libQueueIdx = (libQueueIdx + 1) % libQueue.length;
+        playVideo(libQueue[libQueueIdx], false, false, true);
       }
     }
   }
 }
 
 // ── Play video ─────────────────────────────────────────────────────────────
-function playVideo(id, keepPlaylist, _isDefault) {
+function playVideo(id, keepPlaylist, _isDefault, _keepQueue) {
   if (!ready || !player) { pendingAutoPlay = id; toast('⏳ Player loading, will play shortly…'); return; }
   isDefaultVideo = !!_isDefault;
   stopProgressUpdate();
   stopAbMonitor();
+
+  // Reset library queue on manual user navigation
+  if (!_keepQueue) { libQueue = null; libQueueIdx = -1; }
 
   // Exit playlist mode when playing a standalone video
   if (!keepPlaylist && (playlistMode || currentPlaylistId)) {
