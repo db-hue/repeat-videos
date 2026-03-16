@@ -800,6 +800,7 @@ let currentPlaylistId = null;
 let playlistMode      = false;
 let libQueue       = null;    // snapshotted library play order (array of videoIds)
 let libQueueIdx    = -1;     // current position in libQueue
+let lastCountedEnd = null;   // { id, time } — prevents double-counting playlist track ends
 let currentUser    = null;
 let serverLibCache = null;   // null = guest; object = logged-in cache
 let lastLibRefresh = 0;
@@ -1537,12 +1538,17 @@ function onState(e) {
       if (levels && levels.length) player.setPlaybackQuality(levels[0]);
     } catch (_) {}
     startProgressUpdate();
-    if (!playlistMode) startAbMonitor();
+    startAbMonitor();
 
     if (playlistMode) {
       try {
         const data = player.getVideoData();
         if (data.video_id && data.video_id !== curId) {
+          // Track changed — count the completed play of the previous video
+          if (curId) {
+            lastCountedEnd = { id: curId, time: Date.now() };
+            countLoop();
+          }
           curId     = data.video_id;
           curTitle  = data.title || '';
           autoSaved = false;
@@ -1639,8 +1645,9 @@ function onState(e) {
   }
 
   if (e.data === YT.PlayerState.ENDED && curId) {
-    // Count a completed play-through regardless of loop mode
-    countLoop();
+    // Count a completed play-through — skip if already counted via playlist track change
+    const alreadyCounted = lastCountedEnd && lastCountedEnd.id === curId && (Date.now() - lastCountedEnd.time) < 2000;
+    if (!alreadyCounted) countLoop();
     if (playlistMode && currentPlaylistId) {
       const pl = player.getPlaylist?.();
       const idx = player.getPlaylistIndex?.();
