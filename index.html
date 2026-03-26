@@ -585,10 +585,10 @@
       align-items: center;
       padding: 6px 16px;
       margin-bottom: 4px;
-      gap: 14px;
+      gap: 10px;
       user-select: none;
+      justify-content: flex-start;
     }
-    .sort-header .sh-thumb { width: 72px; flex-shrink: 0; }
     .sort-header .sh-col {
       font-size: 0.72rem;
       font-weight: 600;
@@ -610,8 +610,8 @@
       transition: opacity 0.2s;
     }
     .sort-header .sh-col.active .sort-arrow { opacity: 1; }
-    .sort-header .sh-title { flex: 1; min-width: 0; }
-    .sort-header .sh-counter { text-align: right; flex-shrink: 0; min-width: 52px; }
+    .sort-header .sh-title { flex-shrink: 0; }
+    .sort-header .sh-counter { flex-shrink: 0; }
 
     .lib-filter {
       display: none;
@@ -631,7 +631,6 @@
     }
     .lib-filter input:focus { border-color: var(--accent); }
     .lib-filter input::placeholder { color: var(--muted); }
-    .sort-header .sh-end { width: 30px; flex-shrink: 0; }
     .sort-header .sh-custom { flex-shrink: 0; }
 
     .btn-move {
@@ -851,13 +850,10 @@
     <input type="text" id="libFilterInput" placeholder="Search by name…" autocomplete="off" />
   </div>
   <div class="sort-header" id="sortBar" style="display:none;">
-    <div class="sh-thumb"></div>
     <div class="sh-col sh-title" data-sort="title">Name <span class="sort-arrow">▲</span></div>
-    <div class="sh-col active" data-sort="recent" style="flex-shrink:0;">Date <span class="sort-arrow">▼</span></div>
-    <div class="sh-col" style="width:30px; flex-shrink:0;"></div>
+    <div class="sh-col active" data-sort="recent">Date <span class="sort-arrow">▼</span></div>
     <div class="sh-col sh-counter" data-sort="most-played">Counter <span class="sort-arrow">▼</span></div>
     <div class="sh-col sh-custom" data-sort="custom">Custom</div>
-    <div class="sh-end"></div>
   </div>
   <div class="songs" id="songs"></div>
   <div class="lib-footer" id="libFooter" style="display:none; text-align:center; padding:12px 0 20px;">
