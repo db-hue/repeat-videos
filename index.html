@@ -1635,12 +1635,12 @@ function advanceToNext() {
       player.nextVideo();
     }
   } else {
-    // Play next song from library queue
+    // Play next song from library queue (respects current sort + filter)
     if (!libQueue) {
       const lib = loadLib();
-      libQueue = Object.entries(lib)
-        .sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt))
-        .map(([id]) => id);
+      let entries = Object.entries(lib);
+      if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
+      libQueue = sortLibEntries(entries).map(([id]) => id);
       libQueueIdx = libQueue.indexOf(curId);
     }
     if (libQueue.length > 1) {
@@ -1982,6 +1982,7 @@ document.getElementById('reloadBtn').addEventListener('click', async () => {
 // ── Filter input ────────────────────────────────────────────────────────────
 document.getElementById('libFilterInput').addEventListener('input', (e) => {
   libFilter = e.target.value.toLowerCase();
+  libQueue = null;
   renderLib();
 });
 
@@ -1998,6 +1999,7 @@ document.getElementById('sortBar').addEventListener('click', (e) => {
   }
   document.querySelectorAll('#sortBar .sh-col').forEach(c => c.classList.toggle('active', c === col));
   col.querySelector('.sort-arrow').textContent = libSortAsc ? '▲' : '▼';
+  libQueue = null;
   renderLib();
 });
 
