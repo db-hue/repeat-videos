@@ -580,6 +580,21 @@
     }
     .btn-reload-ghost:hover { background: var(--accent); color: #fff; }
 
+    .btn-ghost {
+      border: 1px solid rgba(255,255,255,.15);
+      color: var(--muted);
+      background: transparent;
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+      margin-right: 8px;
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--text); }
+
     .sort-header {
       display: flex;
       align-items: center;
@@ -945,6 +960,9 @@
   <div class="songs" id="songs"></div>
   <div class="lib-footer" id="libFooter" style="display:none; text-align:center; padding:12px 0 20px;">
     <button id="libRefreshBtn" onclick="manualLibRefresh()" title="Refresh library" style="display:none; background:none; border:1px solid rgba(255,255,255,.15); border-radius:6px; color:#aaa; cursor:pointer; font-size:1rem; padding:4px 10px; margin-right:8px; transition:color .2s">🔄</button>
+    <button class="btn-ghost" onclick="exportHistory()" title="Download history as file">Export</button>
+    <button class="btn-ghost" onclick="document.getElementById('importFile').click()" title="Load history from file">Import</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importHistory(event)" />
     <button class="btn-reload-ghost" id="reloadBtn" title="Reload history from server">Reload history</button>
     <button class="btn-danger-ghost" id="clearBtn">Clear all</button>
   </div>
@@ -2292,6 +2310,72 @@ async function delSong(id, e) {
   }
   renderLib();
   toast('Removed from library');
+}
+
+// ── Export / Import history ──────────────────────────────────────────────────
+function exportHistory() {
+  const lib = loadLib();
+  const data = JSON.stringify(lib, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `repeat-videos-history-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('History exported');
+}
+
+async function importHistory(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const imported = JSON.parse(text);
+    if (typeof imported !== 'object' || Array.isArray(imported)) throw new Error('Invalid format');
+
+    const lib = loadLib();
+    let added = 0;
+
+    for (const [videoId, entry] of Object.entries(imported)) {
+      if (!entry || !entry.title) continue;
+      if (lib[videoId]) continue; // don't overwrite existing entries
+      const newEntry = {
+        title:        entry.title,
+        loops:        entry.loops || 0,
+        addedAt:      entry.addedAt || Date.now(),
+        lastPlayedAt: entry.lastPlayedAt || null,
+        loopA:        entry.loopA ?? null,
+        loopB:        entry.loopB ?? null,
+        playlistId:   entry.playlistId ?? null,
+      };
+
+      if (serverLibCache !== null) {
+        serverLibCache[videoId] = newEntry;
+        await api('POST', {
+          videoId,
+          title: newEntry.title,
+          loops: newEntry.loops,
+          addedAt: new Date(newEntry.addedAt).toISOString(),
+          lastPlayedAt: newEntry.lastPlayedAt ? new Date(newEntry.lastPlayedAt).toISOString() : null,
+          loopA: newEntry.loopA,
+          loopB: newEntry.loopB,
+          playlistId: newEntry.playlistId,
+        });
+      } else {
+        lib[videoId] = newEntry;
+      }
+      added++;
+    }
+
+    if (serverLibCache === null) saveLib(lib);
+    renderLib();
+    toast(added ? `Imported ${added} video${added > 1 ? 's' : ''}` : 'No new videos to import');
+  } catch (err) {
+    console.error('Import failed:', err);
+    toast('Import failed — invalid file');
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
