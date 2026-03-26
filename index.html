@@ -2037,7 +2037,7 @@ document.getElementById('sortBar').addEventListener('click', (e) => {
 
 // ── Render library ─────────────────────────────────────────────────────────
 function sortLibEntries(list) {
-  const dir = libSortAsc ? 1 : -1;
+  const dir = libSortAsc ? -1 : 1;
   switch (libSortMode) {
     case 'most-played':
       return list.sort((a, b) => dir * ((b[1].loops || 0) - (a[1].loops || 0)));
