@@ -565,6 +565,42 @@
     }
     .btn-danger-ghost:hover { background: var(--red); color: #fff; }
 
+    .btn-reload-ghost {
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      background: transparent;
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+      margin-right: 8px;
+    }
+    .btn-reload-ghost:hover { background: var(--accent); color: #fff; }
+
+    .sort-bar {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .sort-btn {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    .sort-btn:hover { border-color: var(--accent); color: var(--text); }
+    .sort-btn.active { background: rgba(26,159,255,0.12); border-color: var(--accent); color: var(--accent); }
+
     .songs { display: flex; flex-direction: column; gap: 8px; }
 
     .song-row {
@@ -760,9 +796,15 @@
   <div class="lib-header">
     <div class="lib-title">📚 My History </div>
   </div>
+  <div class="sort-bar" id="sortBar" style="display:none;">
+    <button class="sort-btn active" data-sort="recent">Recent</button>
+    <button class="sort-btn" data-sort="most-played">Most played</button>
+    <button class="sort-btn" data-sort="title">Title A-Z</button>
+  </div>
   <div class="songs" id="songs"></div>
   <div class="lib-footer" id="libFooter" style="display:none; text-align:center; padding:12px 0 20px;">
     <button id="libRefreshBtn" onclick="manualLibRefresh()" title="Refresh library" style="display:none; background:none; border:1px solid rgba(255,255,255,.15); border-radius:6px; color:#aaa; cursor:pointer; font-size:1rem; padding:4px 10px; margin-right:8px; transition:color .2s">🔄</button>
+    <button class="btn-reload-ghost" id="reloadBtn" title="Reload history from server">Reload history</button>
     <button class="btn-danger-ghost" id="clearBtn">Clear all</button>
   </div>
 
@@ -810,6 +852,7 @@ let plTracks       = [];        // [{id, title}] from player.getPlaylist()
 let plCollapsed    = false;
 let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
+let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title'
 let pollTimer      = null;      // polling timer for cross-device sync
 
 // ── API helper ────────────────────────────────────────────────────────────
@@ -936,29 +979,36 @@ async function logout() {
 }
 
 // ── Atlas sync ───────────────────────────────────────────────────────────────
-async function loadLibraryFromAtlas() {
-  try {
-    const entries = await api('GET');
-    serverLibCache = {};
-    for (const e of entries) {
-      serverLibCache[e.videoId] = {
-        title:   e.title,
-        loops:   e.loops || 0,
-        addedAt: new Date(e.addedAt).getTime(),
-        lastPlayedAt: e.lastPlayedAt ? new Date(e.lastPlayedAt).getTime() : null,
-        loopA:   e.loopA ?? null,
-        loopB:   e.loopB ?? null,
-        playlistId: e.playlistId ?? null,
-      };
+async function loadLibraryFromAtlas(retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const entries = await api('GET');
+      if (!Array.isArray(entries)) throw new Error('Invalid response from server');
+      serverLibCache = {};
+      for (const e of entries) {
+        serverLibCache[e.videoId] = {
+          title:   e.title,
+          loops:   e.loops || 0,
+          addedAt: new Date(e.addedAt).getTime(),
+          lastPlayedAt: e.lastPlayedAt ? new Date(e.lastPlayedAt).getTime() : null,
+          loopA:   e.loopA ?? null,
+          loopB:   e.loopB ?? null,
+          playlistId: e.playlistId ?? null,
+        };
+      }
+      lastLibRefresh = Date.now();
+      renderLib();
+      return;
+    } catch (err) {
+      console.error(`Library load attempt ${attempt + 1} failed:`, err);
+      if (attempt === retries) {
+        serverLibCache = null;
+        toast('⚠️ Could not load library.');
+        throw err;
+      }
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
     }
-  } catch (err) {
-    console.error('Library load failed:', err);
-    serverLibCache = null;
-    toast('⚠️ Could not load library.');
-    throw err;   // let initAuth() handle the fallback
   }
-  lastLibRefresh = Date.now();
-  renderLib();
 }
 
 async function importFromLocalStorage() {
@@ -1876,11 +1926,45 @@ document.getElementById('clearBtn').addEventListener('click', async () => {
   toast('Library cleared');
 });
 
+// ── Reload history button ────────────────────────────────────────────────────
+document.getElementById('reloadBtn').addEventListener('click', async () => {
+  if (serverLibCache !== null) {
+    try {
+      await loadLibraryFromAtlas();
+      toast('History reloaded');
+    } catch (_) {}
+  } else {
+    renderLib();
+    toast('History reloaded from local storage');
+  }
+});
+
+// ── Sort bar ────────────────────────────────────────────────────────────────
+document.getElementById('sortBar').addEventListener('click', (e) => {
+  const btn = e.target.closest('.sort-btn');
+  if (!btn) return;
+  libSortMode = btn.dataset.sort;
+  document.querySelectorAll('#sortBar .sort-btn').forEach(b => b.classList.toggle('active', b === btn));
+  renderLib();
+});
+
 // ── Render library ─────────────────────────────────────────────────────────
+function sortLibEntries(list) {
+  switch (libSortMode) {
+    case 'most-played':
+      return list.sort((a, b) => (b[1].loops || 0) - (a[1].loops || 0));
+    case 'title':
+      return list.sort((a, b) => (a[1].title || '').localeCompare(b[1].title || ''));
+    case 'recent':
+    default:
+      return list.sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt));
+  }
+}
+
 function renderLib() {
   const el   = document.getElementById('songs');
   const lib  = loadLib();
-  const list = Object.entries(lib).sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt));
+  const list = sortLibEntries(Object.entries(lib));
 
   if (!list.length) {
     el.innerHTML = `
@@ -1889,9 +1973,11 @@ function renderLib() {
         <p>Songs you save will appear here with their play counts</p>
       </div>`;
     document.getElementById('libFooter').style.display = 'none';
+    document.getElementById('sortBar').style.display = 'none';
     return;
   }
   document.getElementById('libFooter').style.display = '';
+  document.getElementById('sortBar').style.display = 'flex';
   document.getElementById('libRefreshBtn').style.display = serverLibCache !== null ? '' : 'none';
 
   el.innerHTML = list.map(([id, s]) => `
