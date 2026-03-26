@@ -612,6 +612,25 @@
     .sort-header .sh-col.active .sort-arrow { opacity: 1; }
     .sort-header .sh-title { flex: 1; min-width: 0; }
     .sort-header .sh-counter { text-align: right; flex-shrink: 0; min-width: 52px; }
+
+    .lib-filter {
+      display: none;
+      margin-bottom: 8px;
+    }
+    .lib-filter input {
+      width: 100%;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 7px 12px;
+      font-size: 0.82rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .lib-filter input:focus { border-color: var(--accent); }
+    .lib-filter input::placeholder { color: var(--muted); }
     .sort-header .sh-end { width: 30px; flex-shrink: 0; }
 
     .songs { display: flex; flex-direction: column; gap: 8px; }
@@ -809,9 +828,13 @@
   <div class="lib-header">
     <div class="lib-title">📚 My History </div>
   </div>
+  <div class="lib-filter" id="libFilterBox">
+    <input type="text" id="libFilterInput" placeholder="Search by name…" autocomplete="off" />
+  </div>
   <div class="sort-header" id="sortBar" style="display:none;">
     <div class="sh-thumb"></div>
-    <div class="sh-col sh-title active" data-sort="recent">Date <span class="sort-arrow">▼</span></div>
+    <div class="sh-col sh-title" data-sort="title">Name <span class="sort-arrow">▲</span></div>
+    <div class="sh-col active" data-sort="recent" style="flex-shrink:0;">Date <span class="sort-arrow">▼</span></div>
     <div class="sh-col" style="width:30px; flex-shrink:0;"></div>
     <div class="sh-col sh-counter" data-sort="most-played">Counter <span class="sort-arrow">▼</span></div>
     <div class="sh-end"></div>
@@ -867,8 +890,9 @@ let plTracks       = [];        // [{id, title}] from player.getPlaylist()
 let plCollapsed    = false;
 let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
-let libSortMode    = 'recent';  // 'recent' | 'most-played'
+let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title'
 let libSortAsc     = false;     // false = descending (default), true = ascending
+let libFilter      = '';        // search filter for history
 let pollTimer      = null;      // polling timer for cross-device sync
 
 // ── API helper ────────────────────────────────────────────────────────────
@@ -1955,9 +1979,15 @@ document.getElementById('reloadBtn').addEventListener('click', async () => {
   }
 });
 
+// ── Filter input ────────────────────────────────────────────────────────────
+document.getElementById('libFilterInput').addEventListener('input', (e) => {
+  libFilter = e.target.value.toLowerCase();
+  renderLib();
+});
+
 // ── Sort header ─────────────────────────────────────────────────────────────
 document.getElementById('sortBar').addEventListener('click', (e) => {
-  const col = e.target.closest('.sh-col');
+  const col = e.target.closest('.sh-col[data-sort]');
   if (!col) return;
   const sort = col.dataset.sort;
   if (libSortMode === sort) {
@@ -1977,6 +2007,8 @@ function sortLibEntries(list) {
   switch (libSortMode) {
     case 'most-played':
       return list.sort((a, b) => dir * ((b[1].loops || 0) - (a[1].loops || 0)));
+    case 'title':
+      return list.sort((a, b) => dir * (a[1].title || '').localeCompare(b[1].title || ''));
     case 'recent':
     default:
       return list.sort((a, b) => dir * ((b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt)));
@@ -1986,9 +2018,13 @@ function sortLibEntries(list) {
 function renderLib() {
   const el   = document.getElementById('songs');
   const lib  = loadLib();
-  const list = sortLibEntries(Object.entries(lib));
+  const all  = Object.entries(lib);
+  const filtered = libFilter
+    ? all.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter))
+    : all;
+  const list = sortLibEntries(filtered);
 
-  if (!list.length) {
+  if (!all.length) {
     el.innerHTML = `
       <div class="empty">
         <div class="icon">🎧</div>
@@ -1996,11 +2032,18 @@ function renderLib() {
       </div>`;
     document.getElementById('libFooter').style.display = 'none';
     document.getElementById('sortBar').style.display = 'none';
+    document.getElementById('libFilterBox').style.display = 'none';
     return;
   }
   document.getElementById('libFooter').style.display = '';
   document.getElementById('sortBar').style.display = 'flex';
+  document.getElementById('libFilterBox').style.display = 'block';
   document.getElementById('libRefreshBtn').style.display = serverLibCache !== null ? '' : 'none';
+
+  if (!list.length) {
+    el.innerHTML = `<div class="empty"><p>No matches</p></div>`;
+    return;
+  }
 
   el.innerHTML = list.map(([id, s]) => `
     <div class="song-row ${id === curId ? 'active' : ''}" onclick="playVideo('${id}')">
