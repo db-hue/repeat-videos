@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://repeat-videos.com/sitemap.xml
