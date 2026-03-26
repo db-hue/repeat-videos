@@ -632,6 +632,25 @@
     .lib-filter input:focus { border-color: var(--accent); }
     .lib-filter input::placeholder { color: var(--muted); }
     .sort-header .sh-end { width: 30px; flex-shrink: 0; }
+    .sort-header .sh-custom { flex-shrink: 0; }
+
+    .btn-move {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 2px 4px;
+      border-radius: 4px;
+      line-height: 1;
+      transition: color 0.2s;
+    }
+    .btn-move:hover { color: var(--accent); }
+    .move-arrows { display: flex; flex-direction: column; gap: 0; flex-shrink: 0; }
+
+    .song-row.drag-over-above { border-top: 2px solid var(--accent); }
+    .song-row.drag-over-below { border-bottom: 2px solid var(--accent); }
+    .song-row.dragging { opacity: 0.4; }
 
     .songs { display: flex; flex-direction: column; gap: 8px; }
 
@@ -837,6 +856,7 @@
     <div class="sh-col active" data-sort="recent" style="flex-shrink:0;">Date <span class="sort-arrow">▼</span></div>
     <div class="sh-col" style="width:30px; flex-shrink:0;"></div>
     <div class="sh-col sh-counter" data-sort="most-played">Counter <span class="sort-arrow">▼</span></div>
+    <div class="sh-col sh-custom" data-sort="custom">Custom</div>
     <div class="sh-end"></div>
   </div>
   <div class="songs" id="songs"></div>
@@ -890,9 +910,10 @@ let plTracks       = [];        // [{id, title}] from player.getPlaylist()
 let plCollapsed    = false;
 let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
-let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title'
+let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'custom'
 let libSortAsc     = false;     // false = descending (default), true = ascending
 let libFilter      = '';        // search filter for history
+let customOrder    = JSON.parse(localStorage.getItem('rv_customOrder') || '[]');
 let pollTimer      = null;      // polling timer for cross-device sync
 
 // ── API helper ────────────────────────────────────────────────────────────
@@ -1991,14 +2012,29 @@ document.getElementById('sortBar').addEventListener('click', (e) => {
   const col = e.target.closest('.sh-col[data-sort]');
   if (!col) return;
   const sort = col.dataset.sort;
-  if (libSortMode === sort) {
+  if (sort === 'custom' && libSortMode !== 'custom') {
+    // Snapshot current visible order as starting point for custom
+    const lib = loadLib();
+    let entries = Object.entries(lib);
+    if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
+    const currentIds = sortLibEntries(entries).map(([id]) => id);
+    // Merge: keep saved custom positions for known ids, append new ones
+    const saved = customOrder.filter(id => lib[id]);
+    const newIds = currentIds.filter(id => !saved.includes(id));
+    customOrder = [...saved, ...newIds];
+    // If no saved order, use the current display order
+    if (!saved.length) customOrder = currentIds;
+    saveCustomOrder();
+  }
+  if (libSortMode === sort && sort !== 'custom') {
     libSortAsc = !libSortAsc;
   } else {
     libSortMode = sort;
     libSortAsc = false;
   }
   document.querySelectorAll('#sortBar .sh-col').forEach(c => c.classList.toggle('active', c === col));
-  col.querySelector('.sort-arrow').textContent = libSortAsc ? '▲' : '▼';
+  const arrow = col.querySelector('.sort-arrow');
+  if (arrow) arrow.textContent = libSortAsc ? '▲' : '▼';
   libQueue = null;
   renderLib();
 });
@@ -2011,6 +2047,10 @@ function sortLibEntries(list) {
       return list.sort((a, b) => dir * ((b[1].loops || 0) - (a[1].loops || 0)));
     case 'title':
       return list.sort((a, b) => dir * (a[1].title || '').localeCompare(b[1].title || ''));
+    case 'custom': {
+      const idx = id => { const i = customOrder.indexOf(id); return i === -1 ? 9999 : i; };
+      return list.sort((a, b) => idx(a[0]) - idx(b[0]));
+    }
     case 'recent':
     default:
       return list.sort((a, b) => dir * ((b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt)));
@@ -2047,8 +2087,16 @@ function renderLib() {
     return;
   }
 
-  el.innerHTML = list.map(([id, s]) => `
-    <div class="song-row ${id === curId ? 'active' : ''}" onclick="playVideo('${id}')">
+  const isCustom = libSortMode === 'custom';
+  el.innerHTML = list.map(([id, s], i) => `
+    <div class="song-row ${id === curId ? 'active' : ''}"
+         data-id="${id}"
+         ${isCustom ? 'draggable="true"' : ''}
+         onclick="playVideo('${id}')">
+      ${isCustom ? `<div class="move-arrows">
+        <button class="btn-move" onclick="moveRow('${id}', -1, event)" title="Move up" ${i === 0 ? 'disabled' : ''}>▲</button>
+        <button class="btn-move" onclick="moveRow('${id}', 1, event)" title="Move down" ${i === list.length - 1 ? 'disabled' : ''}>▼</button>
+      </div>` : ''}
       <img class="thumb"
            src="https://img.youtube.com/vi/${id}/mqdefault.jpg"
            alt=""
@@ -2065,6 +2113,71 @@ function renderLib() {
       <button class="btn-del" onclick="delSong('${id}', event)" title="Remove">🗑️</button>
     </div>
   `).join('');
+
+  if (isCustom) initDragAndDrop();
+}
+
+// ── Custom order: arrow buttons ──────────────────────────────────────────────
+function moveRow(id, dir, e) {
+  e.stopPropagation();
+  const i = customOrder.indexOf(id);
+  if (i === -1) return;
+  const j = i + dir;
+  if (j < 0 || j >= customOrder.length) return;
+  [customOrder[i], customOrder[j]] = [customOrder[j], customOrder[i]];
+  saveCustomOrder();
+  libQueue = null;
+  renderLib();
+}
+
+function saveCustomOrder() {
+  localStorage.setItem('rv_customOrder', JSON.stringify(customOrder));
+}
+
+// ── Custom order: drag and drop ─────────────────────────────────────────────
+function initDragAndDrop() {
+  const rows = document.querySelectorAll('#songs .song-row[draggable]');
+  let dragId = null;
+
+  rows.forEach(row => {
+    row.addEventListener('dragstart', (e) => {
+      dragId = row.dataset.id;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => {
+      dragId = null;
+      row.classList.remove('dragging');
+      document.querySelectorAll('.drag-over-above, .drag-over-below').forEach(r => r.classList.remove('drag-over-above', 'drag-over-below'));
+    });
+    row.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = row.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      row.classList.toggle('drag-over-above', e.clientY < mid);
+      row.classList.toggle('drag-over-below', e.clientY >= mid);
+    });
+    row.addEventListener('dragleave', () => {
+      row.classList.remove('drag-over-above', 'drag-over-below');
+    });
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      row.classList.remove('drag-over-above', 'drag-over-below');
+      const targetId = row.dataset.id;
+      if (!dragId || dragId === targetId) return;
+      const fromIdx = customOrder.indexOf(dragId);
+      if (fromIdx === -1) return;
+      customOrder.splice(fromIdx, 1);
+      let toIdx = customOrder.indexOf(targetId);
+      const rect = row.getBoundingClientRect();
+      if (e.clientY >= rect.top + rect.height / 2) toIdx++;
+      customOrder.splice(toIdx, 0, dragId);
+      saveCustomOrder();
+      libQueue = null;
+      renderLib();
+    });
+  });
 }
 
 function loadPlaylistFromLib(listId, e) {
