@@ -812,6 +812,7 @@
   <div class="sort-header" id="sortBar" style="display:none;">
     <div class="sh-thumb"></div>
     <div class="sh-col sh-title active" data-sort="recent">Date <span class="sort-arrow">▼</span></div>
+    <div class="sh-col" style="width:30px; flex-shrink:0;"></div>
     <div class="sh-col sh-counter" data-sort="most-played">Counter <span class="sort-arrow">▼</span></div>
     <div class="sh-end"></div>
   </div>
@@ -2011,11 +2012,11 @@ function renderLib() {
         <div class="song-name">${esc(s.title)}</div>
         <div class="song-date">${fmtDate(s.lastPlayedAt || s.addedAt)}</div>
       </div>
+      ${s.playlistId ? `<button class="btn-playlist-lib" onclick="loadPlaylistFromLib('${s.playlistId}', event)" title="Play source playlist">▶<span class="playlist-lib-label">Start playlist</span></button>` : ''}
       <div class="loop-count">
         <span class="num">${s.loops || 0}</span>
         <span class="lbl">counter</span>
       </div>
-      ${s.playlistId ? `<button class="btn-playlist-lib" onclick="loadPlaylistFromLib('${s.playlistId}', event)" title="Play source playlist">▶<span class="playlist-lib-label">Start playlist</span></button>` : ''}
       <button class="btn-del" onclick="delSong('${id}', event)" title="Remove">🗑️</button>
     </div>
   `).join('');
