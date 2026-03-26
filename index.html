@@ -580,26 +580,39 @@
     }
     .btn-reload-ghost:hover { background: var(--accent); color: #fff; }
 
-    .sort-bar {
+    .sort-header {
       display: flex;
-      gap: 6px;
-      margin-bottom: 10px;
-      flex-wrap: wrap;
+      align-items: center;
+      padding: 6px 16px;
+      margin-bottom: 4px;
+      gap: 14px;
+      user-select: none;
     }
-    .sort-btn {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      border-radius: 8px;
-      padding: 5px 12px;
-      font-size: 0.75rem;
+    .sort-header .sh-thumb { width: 72px; flex-shrink: 0; }
+    .sort-header .sh-col {
+      font-size: 0.72rem;
       font-weight: 600;
+      color: var(--muted);
       cursor: pointer;
-      font-family: inherit;
-      transition: all 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      transition: color 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
     }
-    .sort-btn:hover { border-color: var(--accent); color: var(--text); }
-    .sort-btn.active { background: rgba(26,159,255,0.12); border-color: var(--accent); color: var(--accent); }
+    .sort-header .sh-col:hover { color: var(--text); }
+    .sort-header .sh-col.active { color: var(--text); }
+    .sort-header .sh-col .sort-arrow {
+      font-size: 0.6rem;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .sort-header .sh-col.active .sort-arrow { opacity: 1; }
+    .sort-header .sh-title { flex: 1; min-width: 0; }
+    .sort-header .sh-counter { text-align: right; flex-shrink: 0; min-width: 52px; }
+    .sort-header .sh-end { width: 30px; flex-shrink: 0; }
 
     .songs { display: flex; flex-direction: column; gap: 8px; }
 
@@ -796,10 +809,11 @@
   <div class="lib-header">
     <div class="lib-title">📚 My History </div>
   </div>
-  <div class="sort-bar" id="sortBar" style="display:none;">
-    <button class="sort-btn active" data-sort="recent">Recent</button>
-    <button class="sort-btn" data-sort="most-played">Most played</button>
-    <button class="sort-btn" data-sort="title">Title A-Z</button>
+  <div class="sort-header" id="sortBar" style="display:none;">
+    <div class="sh-thumb"></div>
+    <div class="sh-col sh-title active" data-sort="recent">Date <span class="sort-arrow">▼</span></div>
+    <div class="sh-col sh-counter" data-sort="most-played">Counter <span class="sort-arrow">▼</span></div>
+    <div class="sh-end"></div>
   </div>
   <div class="songs" id="songs"></div>
   <div class="lib-footer" id="libFooter" style="display:none; text-align:center; padding:12px 0 20px;">
@@ -852,7 +866,8 @@ let plTracks       = [];        // [{id, title}] from player.getPlaylist()
 let plCollapsed    = false;
 let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
-let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title'
+let libSortMode    = 'recent';  // 'recent' | 'most-played'
+let libSortAsc     = false;     // false = descending (default), true = ascending
 let pollTimer      = null;      // polling timer for cross-device sync
 
 // ── API helper ────────────────────────────────────────────────────────────
@@ -1939,25 +1954,31 @@ document.getElementById('reloadBtn').addEventListener('click', async () => {
   }
 });
 
-// ── Sort bar ────────────────────────────────────────────────────────────────
+// ── Sort header ─────────────────────────────────────────────────────────────
 document.getElementById('sortBar').addEventListener('click', (e) => {
-  const btn = e.target.closest('.sort-btn');
-  if (!btn) return;
-  libSortMode = btn.dataset.sort;
-  document.querySelectorAll('#sortBar .sort-btn').forEach(b => b.classList.toggle('active', b === btn));
+  const col = e.target.closest('.sh-col');
+  if (!col) return;
+  const sort = col.dataset.sort;
+  if (libSortMode === sort) {
+    libSortAsc = !libSortAsc;
+  } else {
+    libSortMode = sort;
+    libSortAsc = false;
+  }
+  document.querySelectorAll('#sortBar .sh-col').forEach(c => c.classList.toggle('active', c === col));
+  col.querySelector('.sort-arrow').textContent = libSortAsc ? '▲' : '▼';
   renderLib();
 });
 
 // ── Render library ─────────────────────────────────────────────────────────
 function sortLibEntries(list) {
+  const dir = libSortAsc ? 1 : -1;
   switch (libSortMode) {
     case 'most-played':
-      return list.sort((a, b) => (b[1].loops || 0) - (a[1].loops || 0));
-    case 'title':
-      return list.sort((a, b) => (a[1].title || '').localeCompare(b[1].title || ''));
+      return list.sort((a, b) => dir * ((b[1].loops || 0) - (a[1].loops || 0)));
     case 'recent':
     default:
-      return list.sort((a, b) => (b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt));
+      return list.sort((a, b) => dir * ((b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt)));
   }
 }
 
