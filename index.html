@@ -38,6 +38,9 @@
   }
   </script>
 
+  <!-- Google AdSense — replace ca-pub-XXXXXXXXXXXXXXXX with your publisher ID -->
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+
   <link rel="icon" type="image/svg+xml" href="logo.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -898,6 +901,44 @@
       padding: 30px;
     }
 
+    /* ── Ad banner ── */
+    .ad-banner {
+      text-align: center;
+      margin: 18px 0;
+      min-height: 90px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── Site footer ── */
+    .site-footer {
+      text-align: center;
+      padding: 24px 20px 32px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      border-top: 1px solid var(--border);
+      margin-top: 30px;
+    }
+    .btn-donate {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ffdd00;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 18px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+      margin-bottom: 10px;
+    }
+    .btn-donate:hover { transform: scale(1.04); box-shadow: 0 2px 12px rgba(255,221,0,0.3); }
+
     /* ── Responsive ── */
     @media (max-width: 580px) {
       header { gap: 10px; padding: 12px 16px; }
@@ -978,6 +1019,16 @@
     <div class="playlist-tracks" id="playlistTracks"></div>
   </div>
 
+  <!-- Ad Banner -->
+  <div class="ad-banner" id="adBanner">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+         data-ad-slot="XXXXXXXXXX"
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+  </div>
+
   <!-- Library -->
   <div class="lib-header">
     <div class="lib-title">📚 My History </div>
@@ -1002,6 +1053,14 @@
   </div>
 
 </div>
+
+<!-- Site Footer -->
+<footer class="site-footer">
+  <a class="btn-donate" href="https://buymeacoffee.com/YOUR_USERNAME" target="_blank" rel="noopener">
+    ☕ Buy me a coffee
+  </a>
+  <div>Made with ♥ — Repeat Videos is free and always will be</div>
+</footer>
 
 <!-- Admin Dashboard (rendered only for admin) -->
 <div class="admin-panel" id="adminPanel"></div>
@@ -2516,6 +2575,9 @@ function renderAdmin(data) {
 renderLib();   // render localStorage immediately so library shows while auth loads
 initAbBar();
 initAuth();
+
+// ── AdSense init ──
+try { (adsbygoogle = window.adsbygoogle || []).push({}); } catch (_) {}
 </script>
 </body>
 </html>
