@@ -1050,6 +1050,7 @@ let plTracks       = [];        // [{id, title}] from player.getPlaylist()
 let plCollapsed    = false;
 let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
+let wasPlayingBeforeHidden = false; // resume playback after mobile browser pauses it
 let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'custom'
 let libSortAsc     = false;     // false = descending (default), true = ascending
 let libFilter      = '';        // search filter for history
@@ -1343,7 +1344,22 @@ async function initAuth() {
 
 // ── Library sync across devices ─────────────────────────────────────────────
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState !== 'visible') return;
+  if (document.visibilityState === 'hidden') {
+    // Remember if video was playing before the page went hidden (mobile pause)
+    try {
+      wasPlayingBeforeHidden = player && player.getPlayerState() === YT.PlayerState.PLAYING;
+    } catch (_) { wasPlayingBeforeHidden = false; }
+    return;
+  }
+  // Page became visible again — resume if mobile browser paused the video
+  if (wasPlayingBeforeHidden && player) {
+    wasPlayingBeforeHidden = false;
+    try {
+      if (player.getPlayerState() === YT.PlayerState.PAUSED) {
+        player.playVideo();
+      }
+    } catch (_) {}
+  }
   if (serverLibCache === null) return;
   if (Date.now() - lastLibRefresh < 5000) return;
   lastLibRefresh = Date.now();
