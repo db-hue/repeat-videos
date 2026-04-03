@@ -1110,6 +1110,7 @@ let plCollapsed    = false;
 let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
 let wasPlayingBeforeHidden = false; // resume playback after mobile browser pauses it
+let userPausedFromLockScreen = false; // track lock screen pause to avoid auto-resume conflict
 let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'custom'
 let libSortAsc     = false;     // false = descending (default), true = ascending
 let libFilter      = '';        // search filter for history
@@ -1411,13 +1412,16 @@ document.addEventListener('visibilitychange', async () => {
     return;
   }
   // Page became visible again — resume if mobile browser paused the video
-  if (wasPlayingBeforeHidden && player) {
+  // but NOT if the user explicitly paused from lock screen controls
+  if (wasPlayingBeforeHidden && player && !userPausedFromLockScreen) {
     wasPlayingBeforeHidden = false;
     try {
       if (player.getPlayerState() === YT.PlayerState.PAUSED) {
         player.playVideo();
       }
     } catch (_) {}
+  } else {
+    wasPlayingBeforeHidden = false;
   }
   if (serverLibCache === null) return;
   if (Date.now() - lastLibRefresh < 5000) return;
@@ -1888,8 +1892,43 @@ function advanceToNext() {
   }
 }
 
+// ── Media Session (lock screen controls) ────────────────────────────────────
+function updateMediaSession() {
+  if (!('mediaSession' in navigator) || !curId) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: curTitle || 'Unknown',
+    artist: 'Repeat Videos',
+    artwork: [
+      { src: `https://img.youtube.com/vi/${curId}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' },
+      { src: `https://img.youtube.com/vi/${curId}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpeg' },
+    ],
+  });
+  navigator.mediaSession.setActionHandler('play', () => {
+    userPausedFromLockScreen = false;
+    try { player.playVideo(); } catch (_) {}
+  });
+  navigator.mediaSession.setActionHandler('pause', () => {
+    userPausedFromLockScreen = true;
+    try { player.pauseVideo(); } catch (_) {}
+  });
+  navigator.mediaSession.setActionHandler('previoustrack', () => {
+    userPausedFromLockScreen = false;
+    if (playlistMode) {
+      try { player.previousVideo(); } catch (_) {}
+    } else if (libQueue && libQueue.length > 1) {
+      libQueueIdx = (libQueueIdx - 1 + libQueue.length) % libQueue.length;
+      playVideo(libQueue[libQueueIdx], false, false, true);
+    }
+  });
+  navigator.mediaSession.setActionHandler('nexttrack', () => {
+    userPausedFromLockScreen = false;
+    advanceToNext();
+  });
+}
+
 function onState(e) {
   if (e.data === YT.PlayerState.PLAYING) {
+    userPausedFromLockScreen = false;
     document.getElementById('placeholder').style.display = 'none';
     try { if (!duration) { duration = player.getDuration(); updateAbBar(); } } catch (_) {}
     // Set max available quality
@@ -1899,6 +1938,8 @@ function onState(e) {
     } catch (_) {}
     startProgressUpdate();
     startAbMonitor();
+    updateMediaSession();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 
     if (playlistMode) {
       try {
@@ -2006,6 +2047,7 @@ function onState(e) {
   if (e.data === YT.PlayerState.PAUSED) {
     stopProgressUpdate();
     stopAbMonitor();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   }
 
   if (e.data === YT.PlayerState.ENDED && curId) {
