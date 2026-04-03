@@ -1892,6 +1892,26 @@ function advanceToNext() {
   }
 }
 
+// ── Silent audio helper for Media Session lock screen controls ──────────────
+let silentAudio = null;
+function ensureSilentAudio() {
+  if (silentAudio) return silentAudio;
+  // Tiny silent WAV (loop) gives the browser a media element to anchor lock screen controls
+  silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+  silentAudio.loop = true;
+  silentAudio.volume = 0;
+  return silentAudio;
+}
+
+function startSilentAudio() {
+  const a = ensureSilentAudio();
+  if (a.paused) a.play().catch(() => {});
+}
+
+function stopSilentAudio() {
+  if (silentAudio && !silentAudio.paused) silentAudio.pause();
+}
+
 // ── Media Session (lock screen controls) ────────────────────────────────────
 function updateMediaSession() {
   if (!('mediaSession' in navigator) || !curId) return;
@@ -1906,10 +1926,12 @@ function updateMediaSession() {
   navigator.mediaSession.setActionHandler('play', () => {
     userPausedFromLockScreen = false;
     try { player.playVideo(); } catch (_) {}
+    startSilentAudio();
   });
   navigator.mediaSession.setActionHandler('pause', () => {
     userPausedFromLockScreen = true;
     try { player.pauseVideo(); } catch (_) {}
+    stopSilentAudio();
   });
   navigator.mediaSession.setActionHandler('previoustrack', () => {
     userPausedFromLockScreen = false;
@@ -1938,6 +1960,7 @@ function onState(e) {
     } catch (_) {}
     startProgressUpdate();
     startAbMonitor();
+    startSilentAudio();
     updateMediaSession();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 
@@ -2047,6 +2070,7 @@ function onState(e) {
   if (e.data === YT.PlayerState.PAUSED) {
     stopProgressUpdate();
     stopAbMonitor();
+    stopSilentAudio();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   }
 
