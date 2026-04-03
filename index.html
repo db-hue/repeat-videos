@@ -2190,11 +2190,14 @@ document.getElementById('clearBtn').addEventListener('click', async () => {
 
 // ── Reload history button ────────────────────────────────────────────────────
 document.getElementById('reloadBtn').addEventListener('click', async () => {
-  if (serverLibCache !== null) {
+  if (currentUser) {
     try {
       await loadLibraryFromAtlas();
+      startPolling();
       toast('History reloaded');
-    } catch (_) {}
+    } catch (_) {
+      toast('⚠️ Could not reach server. Try again later.');
+    }
   } else {
     renderLib();
     toast('History reloaded from local storage');
@@ -2268,14 +2271,20 @@ function renderLib() {
   const list = sortLibEntries(filtered);
 
   if (!all.length) {
+    const msg = currentUser && serverLibCache === null
+      ? 'No local history found. Click <strong>Reload history</strong> to fetch from server.'
+      : 'Songs you save will appear here with their play counts';
     el.innerHTML = `
       <div class="empty">
         <div class="icon">🎧</div>
-        <p>Songs you save will appear here with their play counts</p>
+        <p>${msg}</p>
       </div>`;
-    document.getElementById('libFooter').style.display = 'none';
+    // Show footer with reload button when logged in but no server data yet
+    const showFooter = currentUser && serverLibCache === null;
+    document.getElementById('libFooter').style.display = showFooter ? '' : 'none';
     document.getElementById('sortBar').style.display = 'none';
     document.getElementById('libFilterBox').style.display = 'none';
+    if (showFooter) document.getElementById('libRefreshBtn').style.display = 'none';
     return;
   }
   document.getElementById('libFooter').style.display = '';
