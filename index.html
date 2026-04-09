@@ -1207,7 +1207,7 @@ async function loadLibraryFromAtlas(retries = 2) {
       console.error(`Library load attempt ${attempt + 1} failed:`, err);
       if (attempt === retries) {
         serverLibCache = null;
-        toast('⚠️ Could not load library.');
+        toast(`⚠️ Could not load library: ${err.message || 'unknown error'}`);
         throw err;
       }
       await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
@@ -1309,6 +1309,27 @@ async function initAuth() {
       currentUser = await auth0Client.getUser();
       showUserInfo(currentUser);
 
+      // Proactively verify the access token is actually obtainable.
+      // In auth0-spa-js v2, isAuthenticated() only checks for a cached user —
+      // it does NOT detect an expired/revoked refresh token. Without this
+      // check, the avatar shows but every API call silently fails and the
+      // library stays empty with no recovery path. If getToken() throws,
+      // the session is stale: clear local auth and prompt re-login.
+      try {
+        await getToken();
+      } catch (tokenErr) {
+        console.error('Access token unavailable — session is stale:', tokenErr);
+        try { await auth0Client.logout({ openUrl: false }); } catch (_) {}
+        currentUser  = null;
+        accessToken  = null;
+        serverLibCache = null;
+        showLoginButtons();
+        renderLib();
+        toast('⚠️ Session expired. Please sign in again.');
+        tryAutoPlay();
+        return;
+      }
+
       // Track login — best-effort, fire and forget
       api('PUT', {
         action: 'track_login',
@@ -1326,7 +1347,7 @@ async function initAuth() {
         console.error('Backend sync failed, falling back to localStorage:', syncErr);
         serverLibCache = null;
         renderLib();
-        toast('⚠️ Cloud sync unavailable — library stored locally.');
+        toast(`⚠️ Cloud sync unavailable: ${syncErr.message || 'unknown error'}`);
       }
       tryAutoPlay();
     } else {
@@ -2148,12 +2169,27 @@ document.getElementById('clearBtn').addEventListener('click', async () => {
 // ── Reload history button ────────────────────────────────────────────────────
 document.getElementById('reloadBtn').addEventListener('click', async () => {
   if (currentUser) {
+    // Verify token is obtainable first — if the refresh token is dead,
+    // retrying the API call will just fail the same way indefinitely.
+    try {
+      await getToken();
+    } catch (tokenErr) {
+      console.error('Access token unavailable on reload — session is stale:', tokenErr);
+      try { await auth0Client.logout({ openUrl: false }); } catch (_) {}
+      currentUser  = null;
+      accessToken  = null;
+      serverLibCache = null;
+      showLoginButtons();
+      renderLib();
+      toast('⚠️ Session expired. Please sign in again.');
+      return;
+    }
     try {
       await loadLibraryFromAtlas();
       startPolling();
       toast('History reloaded');
-    } catch (_) {
-      toast('⚠️ Could not reach server. Try again later.');
+    } catch (err) {
+      toast(`⚠️ Could not reach server: ${err.message || 'unknown error'}`);
     }
   } else {
     renderLib();
