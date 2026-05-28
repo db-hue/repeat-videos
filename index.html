@@ -364,6 +364,20 @@
       cursor: pointer;
     }
 
+    .btn-download {
+      border-color: var(--border);
+      color: var(--muted);
+      background: transparent;
+    }
+    .btn-download:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn-download:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     /* ── Playlist Tracklist Panel ── */
     .playlist-panel {
       background: var(--bg1);
@@ -1003,6 +1017,8 @@
       <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
       <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
       <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
+      <button class="btn-sm btn-download" id="dlAudioBtn" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
+      <button class="btn-sm btn-download" id="dlVideoBtn" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
     </div>
   </div>
 
@@ -2233,6 +2249,27 @@ document.getElementById('loopBtn').addEventListener('click', function () {
   this.classList.toggle('on', looping);
   toast(looping ? 'Loop enabled' : 'Loop disabled');
 });
+
+// Opens a third-party YouTube downloader in a new tab. We don't host the
+// download ourselves: the YouTube ToS forbids it and AdSense enforces against
+// monetized properties that do. Replacing youtube.com with ssyoutube.com is a
+// long-standing redirect to savefrom.net with the URL pre-populated; the
+// destination offers both MP3 (audio) and MP4 (video). Change DL_SERVICE_URL
+// below if you ever want to swap to a different downloader.
+const DL_SERVICE_URL = id => 'https://ssyoutube.com/watch?v=' + encodeURIComponent(id);
+
+function openDownloader(format) {
+  if (!curId) { toast('No video loaded'); return; }
+  const ytUrl = 'https://www.youtube.com/watch?v=' + curId;
+  navigator.clipboard?.writeText(ytUrl).catch(() => {});
+  window.open(DL_SERVICE_URL(curId), '_blank', 'noopener,noreferrer');
+  toast(format === 'audio'
+    ? '⬇ Opened downloader — pick MP3 on the page'
+    : '⬇ Opened downloader — pick MP4 on the page');
+}
+
+document.getElementById('dlAudioBtn').addEventListener('click', () => openDownloader('audio'));
+document.getElementById('dlVideoBtn').addEventListener('click', () => openDownloader('video'));
 
 document.getElementById('playlistBtn').addEventListener('click', function () {
   if (!currentPlaylistId) { toast('Paste a YouTube playlist URL first'); return; }
