@@ -133,7 +133,12 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'PATCH') {
       const { videoId, incLoops, title, loopA, loopB, playlistId, lastPlayedAt } = body;
       const update = {};
-      if (incLoops) update.$inc = { loops: 1 };
+      if (incLoops) {
+        // incLoops: true increments by 1; a positive number adds that many
+        // (merges pre-login local play counts into the server counter on login)
+        const n = incLoops === true ? 1 : Math.floor(Number(incLoops));
+        update.$inc = { loops: Number.isFinite(n) && n > 0 ? Math.min(n, 100000) : 1 };
+      }
       const $set = {};
       if (title !== undefined) $set.title = title;
       if (loopA !== undefined) $set.loopA = loopA;

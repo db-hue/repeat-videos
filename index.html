@@ -1304,29 +1304,35 @@ async function importFromLocalStorage() {
   const count = Object.keys(local).length;
   if (!count) return;
 
-  // Import videos not already on the server; merge loops for existing ones
+  // Import videos not already on the server; merge counts for existing ones
   const toImport = Object.entries(local).filter(([id]) => !serverLibCache[id]);
   const toMerge  = Object.entries(local).filter(([id]) => serverLibCache[id]);
 
-  // Merge local play counts and lastPlayedAt into existing server entries
+  let imported = 0;
+  let merged = 0;
+  const failed = {};
+
+  // Merge pre-login plays into existing server entries: add the local
+  // counter to the server counter and take the more recent lastPlayedAt.
+  // Failed merges stay in localStorage so the counts retry next login.
   for (const [videoId, s] of toMerge) {
     const srv = serverLibCache[videoId];
+    const patch = { videoId };
+    const localLoops  = s.loops || 0;
     const localPlayed = s.lastPlayedAt || s.addedAt || 0;
     const srvPlayed   = srv.lastPlayedAt || srv.addedAt || 0;
-    if (localPlayed > srvPlayed) {
-      srv.lastPlayedAt = localPlayed;
-      api('PATCH', { videoId, lastPlayedAt: new Date(localPlayed).toISOString() }).catch(() => {});
+    if (localLoops > 0) patch.incLoops = localLoops;
+    if (localPlayed > srvPlayed) patch.lastPlayedAt = new Date(localPlayed).toISOString();
+    if (!patch.incLoops && !patch.lastPlayedAt) continue;
+    try {
+      await api('PATCH', patch);
+      if (patch.incLoops) srv.loops = (srv.loops || 0) + localLoops;
+      if (patch.lastPlayedAt) srv.lastPlayedAt = localPlayed;
+      merged++;
+    } catch (_) {
+      failed[videoId] = s;   // keep for retry
     }
   }
-
-  if (!toImport.length) {
-    localStorage.removeItem(STORE_KEY);
-    if (toMerge.length) renderLib();
-    return;
-  }
-
-  let imported = 0;
-  const failed = {};
   for (const [videoId, s] of toImport) {
     try {
       const _addedAt = s.addedAt || Date.now();
@@ -1358,9 +1364,11 @@ async function importFromLocalStorage() {
     localStorage.removeItem(STORE_KEY);
   }
 
+  if (imported > 0 || merged > 0) renderLib();
   if (imported > 0) {
-    renderLib();
     toast(`✅ Imported ${imported} video${imported === 1 ? '' : 's'}!`);
+  } else if (merged > 0) {
+    toast(`✅ Merged your local plays into ${merged} video${merged === 1 ? '' : 's'}`);
   }
 }
 
