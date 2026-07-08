@@ -1019,6 +1019,7 @@
       <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
       <button class="btn-sm btn-download" id="dlAudioBtn" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
       <button class="btn-sm btn-download" id="dlVideoBtn" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
+      <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Admin only — downloads the audio track as an MP4 file">⬇ Audio MP4</button>
     </div>
   </div>
 
@@ -1224,6 +1225,7 @@ function showUserInfo(user) {
   const fallback = `<span class="user-avatar-fallback" style="${user.picture ? 'display:none' : 'display:flex'}">${initials}</span>`;
   const avatar = imgTag + fallback;
   const isAdmin = user.email === ADMIN_EMAIL;
+  document.getElementById('dlAudioMp4Btn').style.display = isAdmin ? '' : 'none';
   area.innerHTML = `
     <div class="user-info">
       ${avatar}
@@ -2252,7 +2254,9 @@ document.getElementById('loopBtn').addEventListener('click', function () {
 
 // Opens a third-party YouTube downloader in a new tab. We don't host the
 // download ourselves: the YouTube ToS forbids it and AdSense enforces against
-// monetized properties that do. Replacing youtube.com with ssyoutube.com is a
+// monetized properties that do. (Single exception: the admin-only Audio MP4
+// button below, JWT-gated to the admin account for personal use.)
+// Replacing youtube.com with ssyoutube.com is a
 // long-standing redirect to savefrom.net with the URL pre-populated; the
 // destination offers both MP3 (audio) and MP4 (video). Change DL_SERVICE_URL
 // below if you ever want to swap to a different downloader.
@@ -2270,6 +2274,44 @@ function openDownloader(format) {
 
 document.getElementById('dlAudioBtn').addEventListener('click', () => openDownloader('audio'));
 document.getElementById('dlVideoBtn').addEventListener('click', () => openDownloader('video'));
+
+// Admin-only direct audio download (exception to the external-redirect rule
+// above: gated server-side on the admin JWT, personal use only). Streams the
+// audio-only MP4 track from the download function and saves it as a file.
+document.getElementById('dlAudioMp4Btn').addEventListener('click', async function () {
+  if (!curId) { toast('No video loaded'); return; }
+  if (this.disabled) return;
+  this.disabled = true;
+  this.textContent = '⏳ Audio MP4…';
+  try {
+    const token = await getToken();
+    const res = await fetch('/.netlify/functions/download?v=' + encodeURIComponent(curId), {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.error || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = /filename\*=UTF-8''([^;]+)/.exec(cd) || /filename="([^"]+)"/.exec(cd);
+    const fname = m ? decodeURIComponent(m[1]) : (curTitle || curId) + '.m4a';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a); // Firefox ignores click() on a detached anchor
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    toast('⬇ Audio MP4 saved');
+  } catch (err) {
+    console.error('Audio MP4 download failed:', err);
+    toast('⚠️ Audio download failed: ' + err.message);
+  } finally {
+    this.disabled = false;
+    this.textContent = '⬇ Audio MP4';
+  }
+});
 
 document.getElementById('playlistBtn').addEventListener('click', function () {
   if (!currentPlaylistId) { toast('Paste a YouTube playlist URL first'); return; }
