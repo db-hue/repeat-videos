@@ -38,6 +38,12 @@
   }
   </script>
 
+  <!-- Google AdSense — disabled until the real publisher ID is filled in.
+       Re-enable by uncommenting and replacing ca-pub-XXXXXXXXXXXXXXXX (also
+       see the ad-banner <ins> block and the adsbygoogle.push() call below).
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+  -->
+
   <link rel="icon" type="image/svg+xml" href="logo.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -359,6 +365,20 @@
       color: #000;
       opacity: 1;
       cursor: pointer;
+    }
+
+    .btn-download {
+      border-color: var(--border);
+      color: var(--muted);
+      background: transparent;
+    }
+    .btn-download:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn-download:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
 
     /* ── Playlist Tracklist Panel ── */
@@ -898,6 +918,44 @@
       padding: 30px;
     }
 
+    /* ── Ad banner ── */
+    .ad-banner {
+      text-align: center;
+      margin: 18px 0;
+      min-height: 90px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── Site footer ── */
+    .site-footer {
+      text-align: center;
+      padding: 24px 20px 32px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      border-top: 1px solid var(--border);
+      margin-top: 30px;
+    }
+    .btn-donate {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ffdd00;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 18px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+      margin-bottom: 10px;
+    }
+    .btn-donate:hover { transform: scale(1.04); box-shadow: 0 2px 12px rgba(255,221,0,0.3); }
+
     /* ── Responsive ── */
     @media (max-width: 580px) {
       header { gap: 10px; padding: 12px 16px; }
@@ -962,6 +1020,9 @@
       <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
       <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
       <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
+      <button class="btn-sm btn-download" id="dlAudioBtn" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
+      <button class="btn-sm btn-download" id="dlVideoBtn" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
+      <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Admin only — downloads the audio track as an MP4 file">⬇ Audio MP4</button>
     </div>
   </div>
 
@@ -977,6 +1038,17 @@
     </div>
     <div class="playlist-tracks" id="playlistTracks"></div>
   </div>
+
+  <!-- Ad Banner — disabled until the real publisher/slot IDs are filled in.
+  <div class="ad-banner" id="adBanner">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+         data-ad-slot="XXXXXXXXXX"
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+  </div>
+  -->
 
   <!-- Library -->
   <div class="lib-header">
@@ -1002,6 +1074,16 @@
   </div>
 
 </div>
+
+<!-- Site Footer -->
+<footer class="site-footer">
+  <!-- Donation button — disabled until the real Buy Me a Coffee username is filled in.
+  <a class="btn-donate" href="https://buymeacoffee.com/YOUR_USERNAME" target="_blank" rel="noopener">
+    ☕ Buy me a coffee
+  </a>
+  -->
+  <div>Made with ♥ — Repeat Videos is free and always will be</div>
+</footer>
 
 <!-- Admin Dashboard (rendered only for admin) -->
 <div class="admin-panel" id="adminPanel"></div>
@@ -1051,6 +1133,7 @@ let plCollapsed    = false;
 let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
 let wasPlayingBeforeHidden = false; // resume playback after mobile browser pauses it
+let userPausedFromLockScreen = false; // track lock screen pause to avoid auto-resume conflict
 let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'custom'
 let libSortAsc     = false;     // false = descending (default), true = ascending
 let libFilter      = '';        // search filter for history
@@ -1148,6 +1231,7 @@ function showUserInfo(user) {
   const fallback = `<span class="user-avatar-fallback" style="${user.picture ? 'display:none' : 'display:flex'}">${initials}</span>`;
   const avatar = imgTag + fallback;
   const isAdmin = user.email === ADMIN_EMAIL;
+  document.getElementById('dlAudioMp4Btn').style.display = isAdmin ? '' : 'none';
   area.innerHTML = `
     <div class="user-info">
       ${avatar}
@@ -1373,13 +1457,16 @@ document.addEventListener('visibilitychange', async () => {
     return;
   }
   // Page became visible again — resume if mobile browser paused the video
-  if (wasPlayingBeforeHidden && player) {
+  // but NOT if the user explicitly paused from lock screen controls
+  if (wasPlayingBeforeHidden && player && !userPausedFromLockScreen) {
     wasPlayingBeforeHidden = false;
     try {
       if (player.getPlayerState() === YT.PlayerState.PAUSED) {
         player.playVideo();
       }
     } catch (_) {}
+  } else {
+    wasPlayingBeforeHidden = false;
   }
   if (serverLibCache === null) return;
   if (Date.now() - lastLibRefresh < 5000) return;
@@ -1850,8 +1937,65 @@ function advanceToNext() {
   }
 }
 
+// ── Silent audio helper for Media Session lock screen controls ──────────────
+let silentAudio = null;
+function ensureSilentAudio() {
+  if (silentAudio) return silentAudio;
+  // Tiny silent WAV (loop) gives the browser a media element to anchor lock screen controls
+  silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+  silentAudio.loop = true;
+  silentAudio.volume = 0;
+  return silentAudio;
+}
+
+function startSilentAudio() {
+  const a = ensureSilentAudio();
+  if (a.paused) a.play().catch(() => {});
+}
+
+function stopSilentAudio() {
+  if (silentAudio && !silentAudio.paused) silentAudio.pause();
+}
+
+// ── Media Session (lock screen controls) ────────────────────────────────────
+function updateMediaSession() {
+  if (!('mediaSession' in navigator) || !curId) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: curTitle || 'Unknown',
+    artist: 'Repeat Videos',
+    artwork: [
+      { src: `https://img.youtube.com/vi/${curId}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' },
+      { src: `https://img.youtube.com/vi/${curId}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpeg' },
+    ],
+  });
+  navigator.mediaSession.setActionHandler('play', () => {
+    userPausedFromLockScreen = false;
+    try { player.playVideo(); } catch (_) {}
+    startSilentAudio();
+  });
+  navigator.mediaSession.setActionHandler('pause', () => {
+    userPausedFromLockScreen = true;
+    try { player.pauseVideo(); } catch (_) {}
+    stopSilentAudio();
+  });
+  navigator.mediaSession.setActionHandler('previoustrack', () => {
+    userPausedFromLockScreen = false;
+    if (playlistMode) {
+      try { player.previousVideo(); } catch (_) {}
+    } else if (libQueue && libQueue.length > 1) {
+      libQueueIdx = (libQueueIdx - 1 + libQueue.length) % libQueue.length;
+      playVideo(libQueue[libQueueIdx], false, false, true);
+    }
+  });
+  navigator.mediaSession.setActionHandler('nexttrack', () => {
+    userPausedFromLockScreen = false;
+    advanceToNext();
+  });
+}
+
 function onState(e) {
   if (e.data === YT.PlayerState.PLAYING) {
+    userPausedFromLockScreen = false;
     document.getElementById('placeholder').style.display = 'none';
     try { if (!duration) { duration = player.getDuration(); updateAbBar(); } } catch (_) {}
     // Set max available quality
@@ -1861,6 +2005,9 @@ function onState(e) {
     } catch (_) {}
     startProgressUpdate();
     startAbMonitor();
+    startSilentAudio();
+    updateMediaSession();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 
     if (playlistMode) {
       try {
@@ -1968,6 +2115,8 @@ function onState(e) {
   if (e.data === YT.PlayerState.PAUSED) {
     stopProgressUpdate();
     stopAbMonitor();
+    stopSilentAudio();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   }
 
   if (e.data === YT.PlayerState.ENDED && curId) {
@@ -2107,6 +2256,67 @@ document.getElementById('loopBtn').addEventListener('click', function () {
   this.textContent = looping ? '🔁 Loop ON' : '➡️ Loop OFF';
   this.classList.toggle('on', looping);
   toast(looping ? 'Loop enabled' : 'Loop disabled');
+});
+
+// Opens a third-party YouTube downloader in a new tab. We don't host the
+// download ourselves: the YouTube ToS forbids it and AdSense enforces against
+// monetized properties that do. (Single exception: the admin-only Audio MP4
+// button below, JWT-gated to the admin account for personal use.)
+// Replacing youtube.com with ssyoutube.com is a
+// long-standing redirect to savefrom.net with the URL pre-populated; the
+// destination offers both MP3 (audio) and MP4 (video). Change DL_SERVICE_URL
+// below if you ever want to swap to a different downloader.
+const DL_SERVICE_URL = id => 'https://ssyoutube.com/watch?v=' + encodeURIComponent(id);
+
+function openDownloader(format) {
+  if (!curId) { toast('No video loaded'); return; }
+  const ytUrl = 'https://www.youtube.com/watch?v=' + curId;
+  navigator.clipboard?.writeText(ytUrl).catch(() => {});
+  window.open(DL_SERVICE_URL(curId), '_blank', 'noopener,noreferrer');
+  toast(format === 'audio'
+    ? '⬇ Opened downloader — pick MP3 on the page'
+    : '⬇ Opened downloader — pick MP4 on the page');
+}
+
+document.getElementById('dlAudioBtn').addEventListener('click', () => openDownloader('audio'));
+document.getElementById('dlVideoBtn').addEventListener('click', () => openDownloader('video'));
+
+// Admin-only direct audio download (exception to the external-redirect rule
+// above: gated server-side on the admin JWT, personal use only). Streams the
+// audio-only MP4 track from the download function and saves it as a file.
+document.getElementById('dlAudioMp4Btn').addEventListener('click', async function () {
+  if (!curId) { toast('No video loaded'); return; }
+  if (this.disabled) return;
+  this.disabled = true;
+  this.textContent = '⏳ Audio MP4…';
+  try {
+    const token = await getToken();
+    const res = await fetch('/.netlify/functions/download?v=' + encodeURIComponent(curId), {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.error || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = /filename\*=UTF-8''([^;]+)/.exec(cd) || /filename="([^"]+)"/.exec(cd);
+    const fname = m ? decodeURIComponent(m[1]) : (curTitle || curId) + '.m4a';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a); // Firefox ignores click() on a detached anchor
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    toast('⬇ Audio MP4 saved');
+  } catch (err) {
+    console.error('Audio MP4 download failed:', err);
+    toast('⚠️ Audio download failed: ' + err.message);
+  } finally {
+    this.disabled = false;
+    this.textContent = '⬇ Audio MP4';
+  }
 });
 
 document.getElementById('playlistBtn').addEventListener('click', function () {
@@ -2577,6 +2787,10 @@ function renderAdmin(data) {
 renderLib();   // render localStorage immediately so library shows while auth loads
 initAbBar();
 initAuth();
+
+// ── AdSense init ──
+// AdSense disabled until the real publisher ID is filled in (see <head>).
+// try { (adsbygoogle = window.adsbygoogle || []).push({}); } catch (_) {}
 </script>
 </body>
 </html>
