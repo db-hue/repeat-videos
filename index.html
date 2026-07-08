@@ -38,8 +38,11 @@
   }
   </script>
 
-  <!-- Google AdSense — replace ca-pub-XXXXXXXXXXXXXXXX with your publisher ID -->
+  <!-- Google AdSense — disabled until the real publisher ID is filled in.
+       Re-enable by uncommenting and replacing ca-pub-XXXXXXXXXXXXXXXX (also
+       see the ad-banner <ins> block and the adsbygoogle.push() call below).
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+  -->
 
   <link rel="icon" type="image/svg+xml" href="logo.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1036,7 +1039,7 @@
     <div class="playlist-tracks" id="playlistTracks"></div>
   </div>
 
-  <!-- Ad Banner -->
+  <!-- Ad Banner — disabled until the real publisher/slot IDs are filled in.
   <div class="ad-banner" id="adBanner">
     <ins class="adsbygoogle"
          style="display:block"
@@ -1045,6 +1048,7 @@
          data-ad-format="auto"
          data-full-width-responsive="true"></ins>
   </div>
+  -->
 
   <!-- Library -->
   <div class="lib-header">
@@ -1073,9 +1077,11 @@
 
 <!-- Site Footer -->
 <footer class="site-footer">
+  <!-- Donation button — disabled until the real Buy Me a Coffee username is filled in.
   <a class="btn-donate" href="https://buymeacoffee.com/YOUR_USERNAME" target="_blank" rel="noopener">
     ☕ Buy me a coffee
   </a>
+  -->
   <div>Made with ♥ — Repeat Videos is free and always will be</div>
 </footer>
 
@@ -2783,7 +2789,8 @@ initAbBar();
 initAuth();
 
 // ── AdSense init ──
-try { (adsbygoogle = window.adsbygoogle || []).push({}); } catch (_) {}
+// AdSense disabled until the real publisher ID is filled in (see <head>).
+// try { (adsbygoogle = window.adsbygoogle || []).push({}); } catch (_) {}
 </script>
 </body>
 </html>
