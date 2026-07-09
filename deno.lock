@@ -14,7 +14,7 @@
         "npm:bgutils-js@^3.2.0",
         "npm:googlevideo@^4.0.4",
         "npm:jose@^4.15.9",
-        "npm:jsdom@^29.1.1",
+        "npm:jsdom@^26.1.0",
         "npm:mongodb@^6.12.0",
         "npm:youtubei.js@^17.2.0"
       ]

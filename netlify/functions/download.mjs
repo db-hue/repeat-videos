@@ -119,16 +119,51 @@ async function getYtSession(forceNew = false) {
   return ytSession;
 }
 
+// YouTube serves "Sign in to confirm you're not a bot" (LOGIN_REQUIRED) to the
+// WEB client from untrusted datacenter IPs (Netlify/AWS egress). TV and embedded
+// clients are exempt from that wall, so walk the chain until one is playable.
+const PLAYER_CLIENTS = ['WEB', 'TV', 'TV_EMBEDDED', 'WEB_EMBEDDED', 'MWEB'];
+
 async function openAudioStream(videoId) {
   const { yt, minter } = await getYtSession();
   // The SABR PO token must be CONTENT-bound (minted against the video id).
   // A session-bound token works for most videos but high-protection ones
   // (music labels) stall with streamProtectionStatus=2 and zero media parts.
   const poToken = await minter.mintAsWebsafeString(videoId);
-  const info = await yt.getBasicInfo(videoId, 'WEB');
-  if (info.playability_status?.status !== 'OK') {
-    throw Object.assign(new Error(`Video not playable: ${info.playability_status?.reason || info.playability_status?.status}`), { status: 422 });
+
+  const failures = [];
+  let info = null, clientUsed = null;
+  for (const client of PLAYER_CLIENTS) {
+    let candidate;
+    try {
+      candidate = await yt.getBasicInfo(videoId, client);
+    } catch (err) {
+      failures.push(`${client}: ${err.message}`);
+      continue;
+    }
+    const ps = candidate.playability_status;
+    if (ps?.status !== 'OK') {
+      failures.push(`${client}: ${ps?.reason || ps?.status}`);
+      continue;
+    }
+    if (!candidate.streaming_data?.server_abr_streaming_url
+        || !candidate.player_config?.media_common_config?.media_ustreamer_request_config?.video_playback_ustreamer_config) {
+      failures.push(`${client}: playable but no SABR parameters`);
+      continue;
+    }
+    info = candidate;
+    clientUsed = client;
+    break;
   }
+  if (!info) {
+    const detail = failures.join(' | ');
+    // Bot-check failures may clear with a fresh visitor session — leave them
+    // retryable (no status) so the handler re-mints once. Everything else
+    // (private, region lock, ...) is a hard 422.
+    const retryable = /bot|sign in/i.test(detail);
+    throw Object.assign(new Error(`Video not playable: ${detail}`), retryable ? {} : { status: 422 });
+  }
+  if (clientUsed !== 'WEB') console.log(`Client fallback for ${videoId}: using ${clientUsed} (${failures.join(' | ')})`);
 
   const serverAbrUrl = await yt.session.player?.decipher(info.streaming_data?.server_abr_streaming_url);
   const ustreamerConfig = info.player_config?.media_common_config?.media_ustreamer_request_config?.video_playback_ustreamer_config;
@@ -140,8 +175,8 @@ async function openAudioStream(videoId) {
     videoPlaybackUstreamerConfig: ustreamerConfig,
     durationMs: (info.basic_info.duration || 0) * 1000,
     clientInfo: {
-      clientName: parseInt(Constants.CLIENT_NAME_IDS.WEB),
-      clientVersion: yt.session.context.client.clientVersion,
+      clientName: parseInt(Constants.CLIENT_NAME_IDS[Constants.CLIENTS[clientUsed].NAME]),
+      clientVersion: Constants.CLIENTS[clientUsed].VERSION,
     },
     poToken,
   });
