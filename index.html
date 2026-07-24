@@ -1102,6 +1102,10 @@ const AUTH0_CLIENT_ID = 'vDsFCK6wEV1dGfqJQG3lllFGP0umQ2NJ';
 const API_AUDIENCE    = 'https://api.repeat-videos.com';
 const API_URL         = '/.netlify/functions/library';
 const ADMIN_API_URL   = '/.netlify/functions/admin';
+// Admin audio download runs on the MF-N home server (Tailscale Funnel), NOT
+// as a Netlify function: YouTube bot-walls all player clients from datacenter
+// egress IPs, so the extraction only works from a residential IP.
+const ADMIN_DL_URL    = 'https://nuolix-minisforum-ai.tail810c50.ts.net/download';
 const ADMIN_EMAIL     = 'd.b@nuolix.com';
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -2316,7 +2320,7 @@ document.getElementById('dlAudioMp4Btn').addEventListener('click', async functio
     const token = await getToken();
     // Mirror the A/B loop window in the file: pass the boundaries so the
     // server trims off whatever the loop cuts from the beginning or end.
-    let url = '/.netlify/functions/download?v=' + encodeURIComponent(curId);
+    let url = ADMIN_DL_URL + '?v=' + encodeURIComponent(curId);
     const dur = (player && typeof player.getDuration === 'function') ? player.getDuration() : 0;
     const trimStart = loopA !== null && loopA > 0.05;
     const trimEnd   = loopB !== null && (!dur || loopB < dur - 0.05);

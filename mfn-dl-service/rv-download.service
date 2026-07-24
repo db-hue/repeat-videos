@@ -1,0 +1,17 @@
+[Unit]
+Description=Repeat Videos admin audio download service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nuolix
+WorkingDirectory=/home/nuolix/rv-download
+ExecStart=/usr/bin/env node server.mjs
+Restart=always
+RestartSec=5
+# Node is installed via nvm/user path on some setups — extend PATH defensively.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/nuolix/.local/bin
+
+[Install]
+WantedBy=multi-user.target
