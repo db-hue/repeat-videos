@@ -16,7 +16,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
@@ -202,23 +202,116 @@ async function openAudioStream(videoId) {
       .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0],
   });
 
-  return { audioStream, title: info.basic_info.title || videoId };
+  return { audioStream, info };
 }
 
-// Trims the audio to the A/B loop window. Stream-copy (no re-encode): AAC
-// packets are all independently decodable, so cuts land on packet boundaries
-// (~23 ms) — effectively exact for loop use. The SABR stream is fragmented
-// MP4, which ffmpeg demuxes fine from a pipe; the output needs a seekable
-// target (moov rewrite), hence the temp file.
-async function trimAudio(audioStream, start, end) {
-  const dir = await mkdtemp(join(tmpdir(), 'rvtrim-'));
-  const outPath = join(dir, 'out.m4a');
-  const args = ['-hide_banner', '-loglevel', 'error', '-y'];
-  if (start > 0) args.push('-ss', String(start));
-  args.push('-i', 'pipe:0');
-  if (end != null) args.push('-t', String(Math.max(0.1, end - start)));
-  args.push('-c', 'copy', '-movflags', '+faststart', outPath);
+// ── Music metadata (best-effort, all sources may fail independently) ───────
+// The player response only carries video title / channel / category /
+// keywords. Clean song title + artist + genre come from the YT Music
+// surface; album only exists for tracks that are part of one; the year is
+// parsed from the watch page's "Premiered/published" text.
+const eqi = (a, b) => a && b && a.toLowerCase() === b.toLowerCase();
+
+// Strip promo noise from video titles: "(Official Video)", "[4K Remaster]",
+// "(Lyrics)", "(Video Oficial)", … — none of it belongs in a music tag.
+function cleanVideoTitle(raw) {
+  return String(raw || '')
+    .replace(/\s*[([{][^)\]}]*\b(official|video|audio|lyrics?|visuali[sz]er|remaster(ed)?|hd|4k|8k|m\/?v|explicit|videoclip|oficial)\b[^)\]}]*[)\]}]/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/[\s\-–—|]+$/g, '')
+    .trim();
+}
+
+async function gatherTags(yt, videoId, info) {
+  const tags = {
+    title:  cleanVideoTitle(info.basic_info?.title) || videoId,
+    artist: (info.basic_info?.author || '').replace(/\s*-\s*Topic\s*$/i, '').replace(/VEVO\s*$/i, '').trim() || null,
+    album:  null,
+    genre:  info.basic_info?.category || null,
+    date:   null,
+  };
+  // "Artist - Song" convention: prefer the artist named in the title over
+  // the channel name (channels are often "SomeartistVEVO" or a label).
+  const dash = tags.title.split(/\s+[-–—]\s+/);
+  if (dash.length === 2 && dash[0] && dash[1]) {
+    tags.artist = dash[0].trim();
+    tags.title  = dash[1].trim();
+  }
+  const keywords = info.basic_info?.keywords || [];
   try {
+    const track = await yt.music.getInfo(videoId);
+    if (track.basic_info?.title)  tags.title  = track.basic_info.title;
+    if (track.basic_info?.author) tags.artist = track.basic_info.author;
+    // First tag that isn't a variant of the artist/title is usually the
+    // genre (e.g. "Latin Urban" for SAOKO). Substring matches are still
+    // name echoes ("jawed" → "jawed karim"), not genres.
+    // Keywords are only genre-shaped on actual music content; elsewhere
+    // they're arbitrary video tags and the category is the honest answer.
+    if (info.basic_info?.category === 'Music') {
+      const echoes = s => [tags.title, tags.artist].some(x =>
+        x && (s.toLowerCase().includes(x.toLowerCase()) || x.toLowerCase().includes(s.toLowerCase())));
+      const cand = (track.basic_info?.tags || keywords).find(t => t && !echoes(t));
+      if (cand) tags.genre = cand;
+    }
+    try {
+      const upNext  = await track.getUpNext();
+      const current = upNext?.contents?.find(c => c.selected);
+      const album   = current?.album?.name || current?.album?.text || null;
+      if (album) tags.album = String(album);
+    } catch { /* album stays null */ }
+  } catch { /* fall back to player-response values */ }
+  try {
+    const full = await yt.getInfo(videoId);
+    const published = full.primary_info?.published?.text || '';
+    const year = /\b(19|20)\d{2}\b/.exec(published);
+    if (year) tags.date = year[0];
+  } catch { /* date stays null */ }
+  return tags;
+}
+
+async function fetchCover(videoId, info) {
+  const urls = [
+    `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+    `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+  ];
+  const t0 = info.basic_info?.thumbnail?.[0]?.url;
+  if (t0 && /\.jpe?g/i.test(new URL(t0).pathname)) urls.unshift(t0);
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return Buffer.from(await res.arrayBuffer());
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+// Single ffmpeg pass: optional A/B trim + music tags + embedded cover art.
+// Stream-copy (no re-encode): AAC packets are all independently decodable,
+// so cuts land on packet boundaries (~23 ms) — effectively exact for loop
+// use. The SABR stream is fragmented MP4, which ffmpeg demuxes fine from a
+// pipe; the output needs a seekable target (moov rewrite), hence the temp
+// file.
+async function processAudio(audioStream, { start = 0, end = null, tags = {}, cover = null }) {
+  const dir = await mkdtemp(join(tmpdir(), 'rvdl-'));
+  const outPath = join(dir, 'out.m4a');
+  try {
+    const args = ['-hide_banner', '-loglevel', 'error', '-y'];
+    if (start > 0) args.push('-ss', String(start));
+    args.push('-i', 'pipe:0');
+    if (cover) {
+      const coverPath = join(dir, 'cover.jpg');
+      await writeFile(coverPath, cover);
+      args.push('-i', coverPath, '-map', '0:a', '-map', '1:v', '-disposition:v:0', 'attached_pic');
+    } else {
+      args.push('-map', '0:a');
+    }
+    // Output option — must come after ALL -i inputs, or it would bind to the
+    // next input instead of limiting the output duration.
+    if (end != null) args.push('-t', String(Math.max(0.1, end - start)));
+    for (const [key, value] of Object.entries(tags)) {
+      if (value) args.push('-metadata', `${key}=${value}`);
+    }
+    args.push('-c', 'copy', '-movflags', '+faststart', outPath);
     const proc = spawn(FFMPEG, args, { stdio: ['pipe', 'ignore', 'pipe'] });
     let stderr = '';
     proc.stderr.on('data', d => { stderr += d; });
@@ -297,30 +390,33 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  const { yt } = await getYtSession();
+  const [tags, cover] = await Promise.all([
+    gatherTags(yt, videoId, result.info),
+    fetchCover(videoId, result.info),
+  ]);
+
+  let body;
+  try {
+    body = await processAudio(result.audioStream, { start, end: trim ? end : null, tags, cover });
+  } catch (err) {
+    console.error('Audio processing failed:', err);
+    return jsonError(res, 500, `Could not process audio: ${err.message}`);
+  }
+
+  const baseName = tags.artist && !eqi(tags.artist, tags.title)
+    ? `${tags.artist} - ${tags.title}` : tags.title;
   const suffix = trim ? ' (loop)' : '';
-  const safeTitle = (result.title.replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 120) || videoId) + suffix;
+  const safeTitle = (baseName.replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 120) || videoId) + suffix;
   const asciiTitle = safeTitle.replace(/[^\x20-\x7E]+/g, '').trim() || videoId + suffix;
-  const headers = {
+  res.writeHead(200, {
     'Content-Type': 'audio/mp4',
     'Content-Disposition': `attachment; filename="${asciiTitle}.m4a"; filename*=UTF-8''${encodeURIComponent(safeTitle)}.m4a`,
+    'Content-Length': String(body.length),
     'Cache-Control': 'no-store',
     ...CORS,
-  };
-
-  if (trim) {
-    let body;
-    try {
-      body = await trimAudio(result.audioStream, start, end);
-    } catch (err) {
-      console.error('Trim failed:', err);
-      return jsonError(res, 500, `Could not trim audio: ${err.message}`);
-    }
-    res.writeHead(200, { ...headers, 'Content-Length': String(body.length) });
-    res.end(body);
-  } else {
-    res.writeHead(200, headers);
-    Readable.fromWeb(result.audioStream).pipe(res);
-  }
+  });
+  res.end(body);
 });
 
 server.listen(PORT, '127.0.0.1', () => {
