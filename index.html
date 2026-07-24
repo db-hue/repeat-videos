@@ -967,6 +967,8 @@
       .player-meta { gap: 8px; }
       .vid-title { order: -1; width: 100%; }
       .user-name { display: none; }
+      /* Comfortable tap targets for the control buttons on touch screens */
+      .player-meta .btn-sm { padding: 9px 12px; }
     }
   </style>
 </head>
@@ -1020,8 +1022,8 @@
       <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
       <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
       <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
-      <button class="btn-sm btn-download" id="dlAudioBtn" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
-      <button class="btn-sm btn-download" id="dlVideoBtn" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
+      <button class="btn-sm btn-download" id="dlAudioBtn" style="display:none" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
+      <button class="btn-sm btn-download" id="dlVideoBtn" style="display:none" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
       <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Admin only — downloads the audio track as an MP4 file">⬇ Audio MP4</button>
     </div>
   </div>
@@ -1178,7 +1180,17 @@ function saveLib(lib) {
 }
 
 // ── Auth UI ────────────────────────────────────────────────────────────────
+// All download options are sign-in only; the direct Audio MP4 additionally
+// requires the admin account.
+function updateDownloadButtons(user) {
+  const signedIn = !!user;
+  document.getElementById('dlAudioBtn').style.display    = signedIn ? '' : 'none';
+  document.getElementById('dlVideoBtn').style.display    = signedIn ? '' : 'none';
+  document.getElementById('dlAudioMp4Btn').style.display = signedIn && user.email === ADMIN_EMAIL ? '' : 'none';
+}
+
 function showGuestUI() {
+  updateDownloadButtons(null);
   document.getElementById('authArea').innerHTML = `
     <div class="user-info">
       <span style="font-size:1.3rem">👤</span>
@@ -1193,6 +1205,7 @@ function onSignInClick() {
 }
 
 function showLoginButtons() {
+  updateDownloadButtons(null);
   const area = document.getElementById('authArea');
   area.innerHTML = `
     <div style="position:relative">
@@ -1231,7 +1244,7 @@ function showUserInfo(user) {
   const fallback = `<span class="user-avatar-fallback" style="${user.picture ? 'display:none' : 'display:flex'}">${initials}</span>`;
   const avatar = imgTag + fallback;
   const isAdmin = user.email === ADMIN_EMAIL;
-  document.getElementById('dlAudioMp4Btn').style.display = isAdmin ? '' : 'none';
+  updateDownloadButtons(user);
   area.innerHTML = `
     <div class="user-info">
       ${avatar}
@@ -2277,6 +2290,7 @@ document.getElementById('loopBtn').addEventListener('click', function () {
 const DL_SERVICE_URL = id => 'https://ssyoutube.com/watch?v=' + encodeURIComponent(id);
 
 function openDownloader(format) {
+  if (!currentUser) { toast('Sign in to use downloads'); return; }
   if (!curId) { toast('No video loaded'); return; }
   const ytUrl = 'https://www.youtube.com/watch?v=' + curId;
   navigator.clipboard?.writeText(ytUrl).catch(() => {});
@@ -2293,13 +2307,22 @@ document.getElementById('dlVideoBtn').addEventListener('click', () => openDownlo
 // above: gated server-side on the admin JWT, personal use only). Streams the
 // audio-only MP4 track from the download function and saves it as a file.
 document.getElementById('dlAudioMp4Btn').addEventListener('click', async function () {
+  if (!currentUser) { toast('Sign in to use downloads'); return; }
   if (!curId) { toast('No video loaded'); return; }
   if (this.disabled) return;
   this.disabled = true;
   this.textContent = '⏳ Audio MP4…';
   try {
     const token = await getToken();
-    const res = await fetch('/.netlify/functions/download?v=' + encodeURIComponent(curId), {
+    // Mirror the A/B loop window in the file: pass the boundaries so the
+    // server trims off whatever the loop cuts from the beginning or end.
+    let url = '/.netlify/functions/download?v=' + encodeURIComponent(curId);
+    const dur = (player && typeof player.getDuration === 'function') ? player.getDuration() : 0;
+    const trimStart = loopA !== null && loopA > 0.05;
+    const trimEnd   = loopB !== null && (!dur || loopB < dur - 0.05);
+    if (trimStart) url += '&start=' + loopA;
+    if (trimEnd)   url += '&end=' + loopB;
+    const res = await fetch(url, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (!res.ok) {
@@ -2317,7 +2340,7 @@ document.getElementById('dlAudioMp4Btn').addEventListener('click', async functio
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-    toast('⬇ Audio MP4 saved');
+    toast((trimStart || trimEnd) ? '⬇ Audio MP4 saved (trimmed to loop)' : '⬇ Audio MP4 saved');
   } catch (err) {
     console.error('Audio MP4 download failed:', err);
     toast('⚠️ Audio download failed: ' + err.message);

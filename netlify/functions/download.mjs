@@ -12,6 +12,12 @@ import { BG, buildURL, GOOG_API_KEY, USER_AGENT } from 'bgutils-js';
 import { JSDOM } from 'jsdom';
 import { SabrStream } from 'googlevideo/sabr-stream';
 import { buildSabrFormat, EnabledTrackTypes } from 'googlevideo/utils';
+import { spawn } from 'node:child_process';
+import { Readable } from 'node:stream';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import ffmpegPath from 'ffmpeg-static';
 
 const AUTH0_DOMAIN   = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE || 'https://api.repeat-videos.com';
@@ -191,6 +197,37 @@ async function openAudioStream(videoId) {
   return { audioStream, title: info.basic_info.title || videoId };
 }
 
+// Trims the audio to the A/B loop window. Stream-copy (no re-encode): AAC
+// packets are all independently decodable, so cuts land on packet boundaries
+// (~23 ms) — effectively exact for loop use. The SABR stream is fragmented
+// MP4, which ffmpeg demuxes fine from a pipe; the output needs a seekable
+// target (moov rewrite), hence the temp file.
+async function trimAudio(audioStream, start, end) {
+  const dir = await mkdtemp(join(tmpdir(), 'rvtrim-'));
+  const outPath = join(dir, 'out.m4a');
+  const args = ['-hide_banner', '-loglevel', 'error', '-y'];
+  if (start > 0) args.push('-ss', String(start));
+  args.push('-i', 'pipe:0');
+  if (end != null) args.push('-t', String(Math.max(0.1, end - start)));
+  args.push('-c', 'copy', '-movflags', '+faststart', outPath);
+  try {
+    const proc = spawn(ffmpegPath, args, { stdio: ['pipe', 'ignore', 'pipe'] });
+    let stderr = '';
+    proc.stderr.on('data', d => { stderr += d; });
+    await new Promise((resolve, reject) => {
+      proc.on('error', reject);
+      proc.on('close', code => code === 0
+        ? resolve()
+        : reject(new Error(`ffmpeg exited ${code}: ${stderr.trim().slice(-300)}`)));
+      Readable.fromWeb(audioStream).pipe(proc.stdin)
+        .on('error', () => {}); // EPIPE if ffmpeg bails early — surfaced via exit code
+    });
+    return await readFile(outPath);
+  } finally {
+    rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 function jsonError(status, message) {
   return new Response(JSON.stringify({ error: message }), {
     status,
@@ -217,8 +254,21 @@ export default async (request) => {
     return jsonError(err.status || 401, err.message);
   }
 
-  const videoId = new URL(request.url).searchParams.get('v');
+  const params  = new URL(request.url).searchParams;
+  const videoId = params.get('v');
   if (!videoId || !/^[\w-]{11}$/.test(videoId)) return jsonError(400, 'Invalid or missing video id');
+
+  // Optional A/B loop trim window (seconds). start defaults to 0; end null = to end.
+  let start = 0, end = null;
+  if (params.get('start') != null) {
+    start = Number(params.get('start'));
+    if (!Number.isFinite(start) || start < 0) return jsonError(400, 'Invalid start');
+  }
+  if (params.get('end') != null) {
+    end = Number(params.get('end'));
+    if (!Number.isFinite(end) || end <= start) return jsonError(400, 'Invalid end');
+  }
+  const trim = start > 0 || end != null;
 
   let result;
   try {
@@ -236,13 +286,25 @@ export default async (request) => {
     }
   }
 
-  const safeTitle = result.title.replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 120) || videoId;
-  const asciiTitle = safeTitle.replace(/[^\x20-\x7E]+/g, '').trim() || videoId;
-  return new Response(result.audioStream, {
+  let body = result.audioStream;
+  if (trim) {
+    try {
+      body = await trimAudio(result.audioStream, start, end);
+    } catch (err) {
+      console.error('Trim failed:', err);
+      return jsonError(500, `Could not trim audio: ${err.message}`);
+    }
+  }
+
+  const suffix = trim ? ' (loop)' : '';
+  const safeTitle = (result.title.replace(/[\\/:*?"<>|]+/g, '').trim().slice(0, 120) || videoId) + suffix;
+  const asciiTitle = safeTitle.replace(/[^\x20-\x7E]+/g, '').trim() || videoId + suffix;
+  return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': 'audio/mp4',
       'Content-Disposition': `attachment; filename="${asciiTitle}.m4a"; filename*=UTF-8''${encodeURIComponent(safeTitle)}.m4a`,
+      ...(trim ? { 'Content-Length': String(body.length) } : {}),
       'Cache-Control': 'no-store',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Expose-Headers': 'Content-Disposition',

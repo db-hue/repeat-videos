@@ -2,6 +2,11 @@
   port = 8765
   dir  = "."
 
+# The ffmpeg binary is loaded at runtime by path (never require()d), so the
+# bundler's dependency trace misses it — it must be included explicitly.
+[functions."download"]
+  included_files = ["node_modules/ffmpeg-static/ffmpeg"]
+
 [[headers]]
   for = "/*"
   [headers.values]
