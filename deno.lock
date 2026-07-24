@@ -12,7 +12,8 @@
     "packageJson": {
       "dependencies": [
         "npm:bgutils-js@^3.2.0",
-        "npm:googlevideo@^4.0.4",
+        "npm:ffmpeg-static@^5.3.0",
+        "npm:googlevideo@^4.1.1",
         "npm:jose@^4.15.9",
         "npm:jsdom@^26.1.0",
         "npm:mongodb@^6.12.0",
