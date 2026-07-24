@@ -1188,9 +1188,12 @@ function saveLib(lib) {
 // requires the admin account.
 function updateDownloadButtons(user) {
   const signedIn = !!user;
-  document.getElementById('dlAudioBtn').style.display    = signedIn ? '' : 'none';
+  const isAdmin  = signedIn && user.email === ADMIN_EMAIL;
+  // Admin has the direct Audio MP4 download, so the external audio
+  // downloader button is redundant for them.
+  document.getElementById('dlAudioBtn').style.display    = signedIn && !isAdmin ? '' : 'none';
   document.getElementById('dlVideoBtn').style.display    = signedIn ? '' : 'none';
-  document.getElementById('dlAudioMp4Btn').style.display = signedIn && user.email === ADMIN_EMAIL ? '' : 'none';
+  document.getElementById('dlAudioMp4Btn').style.display = isAdmin ? '' : 'none';
 }
 
 function showGuestUI() {
