@@ -2311,8 +2311,9 @@ document.getElementById('dlAudioBtn').addEventListener('click', () => openDownlo
 document.getElementById('dlVideoBtn').addEventListener('click', () => openDownloader('video'));
 
 // Admin-only direct audio download (exception to the external-redirect rule
-// above: gated server-side on the admin JWT, personal use only). Streams the
-// audio-only MP4 track from the download function and saves it as a file.
+// above: gated server-side on the admin JWT, personal use only). Fetches the
+// tagged audio-only MP4 track from the MF-N home service (see ADMIN_DL_URL)
+// and saves it as a file, trimmed to the A/B loop window when one is set.
 document.getElementById('dlAudioMp4Btn').addEventListener('click', async function () {
   if (!currentUser) { toast('Sign in to use downloads'); return; }
   if (!curId) { toast('No video loaded'); return; }
