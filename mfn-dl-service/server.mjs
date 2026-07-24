@@ -212,14 +212,17 @@ async function openAudioStream(videoId) {
 // parsed from the watch page's "Premiered/published" text.
 const eqi = (a, b) => a && b && a.toLowerCase() === b.toLowerCase();
 
-// Strip promo noise from video titles: "(Official Video)", "[4K Remaster]",
-// "(Lyrics)", "(Video Oficial)", … — none of it belongs in a music tag.
+// Strip promo noise from video titles: "(Official Video)", "(Official Music
+// Videos)", "[4K Remaster]", "(Lyrics)", "(Video Oficial)", "… - Official
+// Music Video", … — none of it belongs in a music tag. Covers plural forms,
+// the common "Offical" typo, full-width CJK brackets, and un-bracketed
+// trailing phrases.
 function cleanVideoTitle(raw) {
-  return String(raw || '')
-    .replace(/\s*[([{][^)\]}]*\b(official|video|audio|lyrics?|visuali[sz]er|remaster(ed)?|hd|4k|8k|m\/?v|explicit|videoclip|oficial)\b[^)\]}]*[)\]}]/gi, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/[\s\-–—|]+$/g, '')
-    .trim();
+  let t = String(raw || '');
+  t = t.replace(/\s*[([{（【][^)\]}）】]*\b(off?ici?als?|videos?|audios?|lyrics?|visuali[sz]ers?|remaster(ed)?|hd|4k|8k|m\/?v|explicit|videoclip|oficial|officiel)\b[^)\]}）】]*[)\]}）】]/gi, ' ');
+  const tail = /[\s\-–—|:]+(off?ici?als?\s+)?((music|lyrics?)\s+)?(videos?|audios?|visuali[sz]ers?|m\/?v)\s*$/i;
+  while (tail.test(t)) t = t.replace(tail, '');
+  return t.replace(/\s{2,}/g, ' ').replace(/[\s\-–—|]+$/g, '').trim();
 }
 
 async function gatherTags(yt, videoId, info) {
@@ -240,7 +243,9 @@ async function gatherTags(yt, videoId, info) {
   const keywords = info.basic_info?.keywords || [];
   try {
     const track = await yt.music.getInfo(videoId);
-    if (track.basic_info?.title)  tags.title  = track.basic_info.title;
+    // The music surface usually returns the clean song title, but not
+    // always — run it through the same cleaner.
+    if (track.basic_info?.title)  tags.title  = cleanVideoTitle(track.basic_info.title) || tags.title;
     if (track.basic_info?.author) tags.artist = track.basic_info.author;
     // First tag that isn't a variant of the artist/title is usually the
     // genre (e.g. "Latin Urban" for SAOKO). Substring matches are still
