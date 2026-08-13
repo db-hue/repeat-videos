@@ -1120,7 +1120,7 @@ let loopA          = null;
 let loopB          = null;
 let duration       = 0;
 let abInterval     = null;
-let rafId          = null;
+let progressTimer  = null;
 let pendingAutoPlay    = null;
 let isDefaultVideo     = false;
 let autoPlayDone       = false;
@@ -1292,9 +1292,9 @@ async function loadLibraryFromAtlas(retries = 2) {
     try {
       const entries = await api('GET');
       if (!Array.isArray(entries)) throw new Error('Invalid response from server');
-      serverLibCache = {};
+      const fresh = {};
       for (const e of entries) {
-        serverLibCache[e.videoId] = {
+        fresh[e.videoId] = {
           title:   e.title,
           loops:   e.loops || 0,
           addedAt: new Date(e.addedAt).getTime(),
@@ -1304,8 +1304,12 @@ async function loadLibraryFromAtlas(retries = 2) {
           playlistId: e.playlistId ?? null,
         };
       }
+      // Skip the full DOM rebuild when the 5s poll returns identical data
+      const changed = serverLibCache === null
+        || JSON.stringify(fresh) !== JSON.stringify(serverLibCache);
+      serverLibCache = fresh;
       lastLibRefresh = Date.now();
-      renderLib();
+      if (changed) renderLib();
       return;
     } catch (err) {
       console.error(`Library load attempt ${attempt + 1} failed:`, err);
@@ -1782,17 +1786,19 @@ function updateAbBar() {
 function startProgressUpdate() {
   stopProgressUpdate();
   const ph = document.getElementById('abPlayhead');
-  function tick() {
-    if (player && duration > 0) {
-      try { ph.style.left = `${(player.getCurrentTime() / duration) * 100}%`; } catch (_) {}
-    }
-    rafId = requestAnimationFrame(tick);
-  }
-  rafId = requestAnimationFrame(tick);
+  let lastPct = -1;
+  // 5 Hz is plenty for a playhead; a rAF loop here forced layout 60+×/s
+  progressTimer = setInterval(() => {
+    if (!player || duration <= 0) return;
+    try {
+      const pct = Math.round((player.getCurrentTime() / duration) * 1000) / 10;
+      if (pct !== lastPct) { lastPct = pct; ph.style.left = `${pct}%`; }
+    } catch (_) {}
+  }, 200);
 }
 
 function stopProgressUpdate() {
-  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
 }
 
 function countLoop() {
@@ -1969,8 +1975,24 @@ function advanceToNext() {
 let silentAudio = null;
 function ensureSilentAudio() {
   if (silentAudio) return silentAudio;
-  // Tiny silent WAV (loop) gives the browser a media element to anchor lock screen controls
-  silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+  // Silent looping WAV gives the browser a media element to anchor lock screen
+  // controls. It must contain REAL samples: a 0-length WAV with loop=true makes
+  // Chromium restart the loop continuously and pegs the renderer at 100% CPU.
+  const sr = 8000, n = sr / 2; // 0.5 s of 8-bit mono silence
+  const b = new Uint8Array(44 + n);
+  const dv = new DataView(b.buffer);
+  const tag = (o, s) => { for (let i = 0; i < s.length; i++) b[o + i] = s.charCodeAt(i); };
+  tag(0, 'RIFF'); dv.setUint32(4, 36 + n, true); tag(8, 'WAVEfmt ');
+  dv.setUint32(16, 16, true);  // fmt chunk size
+  dv.setUint16(20, 1, true);   // PCM
+  dv.setUint16(22, 1, true);   // mono
+  dv.setUint32(24, sr, true);  // sample rate
+  dv.setUint32(28, sr, true);  // byte rate (8-bit mono)
+  dv.setUint16(32, 1, true);   // block align
+  dv.setUint16(34, 8, true);   // bits per sample
+  tag(36, 'data'); dv.setUint32(40, n, true);
+  b.fill(0x80, 44);            // 8-bit PCM silence = 0x80
+  silentAudio = new Audio(URL.createObjectURL(new Blob([b], { type: 'audio/wav' })));
   silentAudio.loop = true;
   silentAudio.volume = 0;
   return silentAudio;
@@ -2551,7 +2573,7 @@ function renderLib() {
       </div>` : ''}
       <img class="thumb"
            src="https://img.youtube.com/vi/${id}/mqdefault.jpg"
-           alt=""
+           alt="" loading="lazy" decoding="async"
            onerror="this.style.visibility='hidden'" />
       <div class="song-info">
         <div class="song-name">${esc(s.title)}</div>
