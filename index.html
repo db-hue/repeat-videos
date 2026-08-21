@@ -969,6 +969,21 @@
       vertical-align: middle;
       margin-right: 8px;
     }
+    .btn-grant {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 3px 8px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-grant:hover { color: var(--text); border-color: var(--accent); }
+    .btn-grant.on { color: var(--green); border-color: var(--green); }
+
     .admin-loading {
       text-align: center;
       color: var(--muted);
@@ -1087,7 +1102,7 @@
         <button class="btn-sm btn-share" id="shareBtn" title="Copy a link to this video — includes your A-B loop points">🔗 Share</button>
         <button class="btn-sm btn-download" id="dlAudioBtn" style="display:none" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
         <button class="btn-sm btn-download" id="dlVideoBtn" style="display:none" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
-        <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Admin only — downloads the audio track as an MP4 file">⬇ Audio MP4</button>
+        <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Downloads the audio track as an MP4 file">⬇ Audio MP4</button>
       </div>
     </div>
   </div>
@@ -1250,15 +1265,28 @@ function saveLib(lib) {
 
 // ── Auth UI ────────────────────────────────────────────────────────────────
 // All download options are sign-in only; the direct Audio MP4 additionally
-// requires the admin account.
+// requires the admin account or a per-user grant set in the admin dashboard.
+let canDownloadAudio = false; // server-side grant, fetched after login
+
 function updateDownloadButtons(user) {
   const signedIn = !!user;
-  const isAdmin  = signedIn && user.email === ADMIN_EMAIL;
-  // Admin has the direct Audio MP4 download, so the external audio
-  // downloader button is redundant for them.
-  document.getElementById('dlAudioBtn').style.display    = signedIn && !isAdmin ? '' : 'none';
+  const direct   = signedIn && (user.email === ADMIN_EMAIL || canDownloadAudio);
+  // The direct Audio MP4 download replaces the external audio downloader
+  // button for users who have it.
+  document.getElementById('dlAudioBtn').style.display    = signedIn && !direct ? '' : 'none';
   document.getElementById('dlVideoBtn').style.display    = signedIn ? '' : 'none';
-  document.getElementById('dlAudioMp4Btn').style.display = isAdmin ? '' : 'none';
+  document.getElementById('dlAudioMp4Btn').style.display = direct ? '' : 'none';
+}
+
+async function fetchDownloadGrant(user) {
+  if (!user || user.email === ADMIN_EMAIL) return;
+  try {
+    const token = await getToken();
+    const res = await fetch(API_URL + '?me=1', { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) return;
+    canDownloadAudio = (await res.json())?.can_download === true;
+    if (canDownloadAudio) updateDownloadButtons(user);
+  } catch (_) { /* stay with the default buttons */ }
 }
 
 function showGuestUI() {
@@ -1317,6 +1345,7 @@ function showUserInfo(user) {
   const avatar = imgTag + fallback;
   const isAdmin = user.email === ADMIN_EMAIL;
   updateDownloadButtons(user);
+  fetchDownloadGrant(user); // may reveal the direct download button async
   area.innerHTML = `
     <div class="user-info">
       ${avatar}
@@ -2999,6 +3028,25 @@ async function loadAdmin() {
   }
 }
 
+async function toggleUserDownload(userId, grant, btn) {
+  btn.disabled = true;
+  try {
+    const token = await getToken();
+    const res = await fetch(ADMIN_API_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, can_download: grant }),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    toast(grant ? '✓ Audio download granted' : 'Audio download revoked');
+    loadAdmin(); // re-render the table with the new state
+  } catch (err) {
+    console.error('Grant update failed:', err);
+    toast('⚠️ Could not update: ' + err.message);
+    btn.disabled = false;
+  }
+}
+
 function renderAdmin(data) {
   const panel = document.getElementById('adminPanel');
   const totalVideos = data.users.reduce((s, u) => s + u.videoCount, 0);
@@ -3031,6 +3079,7 @@ function renderAdmin(data) {
           <th>Last login</th>
           <th>Last activity</th>
           <th>Joined</th>
+          <th>Audio DL</th>
         </tr>
       </thead>
       <tbody>
@@ -3044,6 +3093,11 @@ function renderAdmin(data) {
             <td>${u.last_login ? fmtDate(u.last_login) : '—'}</td>
             <td>${u.lastActivity ? fmtDate(u.lastActivity) : '—'}</td>
             <td>${u.first_login ? fmtDate(u.first_login) : '—'}</td>
+            <td>${u.email === ADMIN_EMAIL
+              ? '<span class="btn-grant on" style="cursor:default">✓ admin</span>'
+              : `<button class="btn-grant ${u.can_download ? 'on' : ''}"
+                   onclick="toggleUserDownload('${esc(u.user_id).replace(/'/g, '')}', ${!u.can_download}, this)"
+                   title="${u.can_download ? 'Revoke' : 'Grant'} direct audio download">${u.can_download ? '✓ allowed' : '✗ off'}</button>`}</td>
           </tr>
         `).join('')}
       </tbody>

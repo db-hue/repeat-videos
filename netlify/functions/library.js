@@ -4,6 +4,7 @@ const { createRemoteJWKSet, jwtVerify } = require('jose');
 const MONGODB_URI    = process.env.MONGODB_URI;
 const AUTH0_DOMAIN   = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE || 'https://api.repeat-videos.com';
+const ADMIN_EMAIL    = 'd.b@nuolix.com';
 
 let mongoClient = null;
 let jwks        = null;
@@ -103,6 +104,23 @@ exports.handler = async (event) => {
     }
 
     const col = db.collection('library');
+
+    // GET ?me=1 — the caller's own account flags. Used by the frontend to
+    // decide whether to show the direct audio download button, and by the
+    // MF-N download service to authorize non-admin users (it forwards the
+    // user's own Bearer token here instead of talking to Mongo itself).
+    if (event.httpMethod === 'GET' && event.queryStringParameters?.me !== undefined) {
+      const u = await db.collection('users').findOne(
+        { user_id: userId },
+        { projection: { _id: 0, email: 1, can_download: 1 } }
+      );
+      const email = payload.email || u?.email || null;
+      return {
+        statusCode: 200,
+        headers: CORS,
+        body: JSON.stringify({ can_download: email === ADMIN_EMAIL || u?.can_download === true }),
+      };
+    }
 
     // GET — return all library entries for this user
     if (event.httpMethod === 'GET') {
