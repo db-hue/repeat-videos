@@ -12,12 +12,14 @@
   <meta property="og:url" content="https://repeat-videos.com/" />
   <meta property="og:title" content="Repeat Videos — Loop YouTube Videos on Repeat" />
   <meta property="og:description" content="Loop any YouTube video on repeat. Set A-B loop points, track play counts, build a personal library, and create playlists." />
+  <meta property="og:image" content="https://repeat-videos.com/logo.png" />
   <meta property="og:site_name" content="Repeat Videos" />
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Repeat Videos — Loop YouTube Videos on Repeat" />
   <meta name="twitter:description" content="Loop any YouTube video on repeat. Set A-B loop points, track play counts, and build a personal library." />
+  <meta name="twitter:image" content="https://repeat-videos.com/logo.png" />
 
   <!-- SEO extras -->
   <meta name="robots" content="index, follow" />
@@ -365,6 +367,16 @@
       color: #000;
       opacity: 1;
       cursor: pointer;
+    }
+
+    .btn-share {
+      border-color: var(--border);
+      color: var(--muted);
+      background: transparent;
+    }
+    .btn-share:hover {
+      border-color: var(--accent2);
+      color: var(--accent2);
     }
 
     .btn-download {
@@ -1022,6 +1034,7 @@
       <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
       <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
       <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
+      <button class="btn-sm btn-share" id="shareBtn" title="Copy a link to this video — includes your A-B loop points">🔗 Share</button>
       <button class="btn-sm btn-download" id="dlAudioBtn" style="display:none" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
       <button class="btn-sm btn-download" id="dlVideoBtn" style="display:none" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
       <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Admin only — downloads the audio track as an MP4 file">⬇ Audio MP4</button>
@@ -1547,6 +1560,25 @@ function extractPlaylistId(raw) {
   const m = (raw || '').match(/[?&]list=([A-Za-z0-9_-]+)/);
   return m ? m[1] : null;
 }
+
+// ── Deep links: /watch?v=ID&a=12.3&b=45.6, ?list=PLAYLISTID, /VIDEOID ───────
+// Lets people swap youtube.com → repeat-videos.com in the address bar and
+// makes shared loop links open the right video with the sender's A-B points.
+let shareAB = null;
+function parseDeepLink() {
+  const qs = new URLSearchParams(location.search);
+  if (qs.has('code') && qs.has('state')) return null; // Auth0 redirect callback
+  const pathId  = location.pathname.match(/^\/(?:watch\/)?([A-Za-z0-9_-]{11})$/);
+  const vid     = extractId(qs.get('v') || '') || (pathId ? pathId[1] : null);
+  const rawList = qs.get('list') || '';
+  const listId  = /^[A-Za-z0-9_-]{2,}$/.test(rawList) ? rawList : null;
+  if (!vid && !listId) return null;
+  let a = parseFloat(qs.get('a')), b = parseFloat(qs.get('b'));
+  if (!isFinite(a) || a < 0) a = null;
+  if (!isFinite(b) || b <= 0 || (a !== null && b <= a + 0.5)) b = null;
+  return { vid, listId, a, b };
+}
+const deepLink = parseDeepLink();
 
 // ── Playlist ───────────────────────────────────────────────────────────────
 function updatePlaylistBtn() {
@@ -2213,6 +2245,12 @@ function playVideo(id, keepPlaylist, _isDefault, _keepQueue) {
   const entry = lib[id];
   loopA = entry?.loopA ?? null;
   loopB = entry?.loopB ?? null;
+  // A-B points from a shared link override the saved ones for this session
+  if (shareAB && shareAB.id === id) {
+    if (shareAB.a !== null) loopA = shareAB.a;
+    if (shareAB.b !== null) loopB = shareAB.b;
+    shareAB = null;
+  }
   updateAbBar();
 
   // Update lastPlayedAt for existing entries
@@ -2245,6 +2283,28 @@ function playVideo(id, keepPlaylist, _isDefault, _keepQueue) {
 function tryAutoPlay() {
   if (autoPlayDone) return;
   autoPlayDone = true;
+  // Deep link takes priority over last-played session restore
+  if (deepLink) {
+    // Regular playlist link → load the playlist (same semantics as handlePlay)
+    if (deepLink.listId && (!deepLink.vid || !deepLink.listId.startsWith('RD'))) {
+      if (ready && player) loadPlaylist(deepLink.listId);
+      else pendingAutoPlay = 'playlist:' + deepLink.listId;
+      return;
+    }
+    if (deepLink.vid) {
+      if (deepLink.a !== null || deepLink.b !== null) {
+        shareAB = { id: deepLink.vid, a: deepLink.a, b: deepLink.b };
+      }
+      if (deepLink.listId) { // radio/mix context
+        currentPlaylistId = deepLink.listId;
+        playlistMode = false;
+        updatePlaylistBtn();
+      }
+      if (ready && player) playVideo(deepLink.vid);
+      else pendingAutoPlay = deepLink.vid;
+      return;
+    }
+  }
   let last = localStorage.getItem(LAST_PLAYED_KEY);
   let useDefault = false;
   if (!last) {
@@ -2295,6 +2355,21 @@ function handlePlay() {
     playVideo(vidId);
   }
 }
+
+document.getElementById('shareBtn').addEventListener('click', async () => {
+  if (!curId) { toast('⚠️ No video selected'); return; }
+  const u = new URL(location.origin + '/watch');
+  u.searchParams.set('v', curId);
+  if (loopA !== null && loopA > 0.05) u.searchParams.set('a', Math.round(loopA * 10) / 10);
+  if (loopB !== null && (!duration || loopB < duration - 0.05)) u.searchParams.set('b', Math.round(loopB * 10) / 10);
+  const url = u.toString();
+  if (navigator.share) {
+    try { await navigator.share({ title: curTitle || 'Repeat Videos', url }); return; }
+    catch (err) { if (err.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(url); toast('🔗 Link copied — send it to anyone'); }
+  catch (_) { toast(`⚠️ Copy failed — link: ${url}`); }
+});
 
 document.getElementById('playBtn').addEventListener('click', handlePlay);
 document.getElementById('urlInput').addEventListener('keypress', e => {
