@@ -379,6 +379,30 @@
       color: var(--accent2);
     }
 
+    .speed-ctl {
+      display: flex;
+      align-items: stretch;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .speed-ctl button {
+      background: transparent;
+      border: none;
+      border-right: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 7px 9px;
+      transition: color 0.2s, background 0.2s;
+      white-space: nowrap;
+    }
+    .speed-ctl button:last-child { border-right: none; }
+    .speed-ctl button:hover { color: var(--text); }
+    .speed-ctl button.on { color: var(--accent2); background: rgba(0, 212, 255, 0.12); }
+
     .btn-download {
       border-color: var(--border);
       color: var(--muted);
@@ -1046,6 +1070,7 @@
       <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
       <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
       <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
+      <div class="speed-ctl" id="speedCtl" title="Playback speed — saved per video"></div>
       <button class="btn-sm btn-share" id="shareBtn" title="Copy a link to this video — includes your A-B loop points">🔗 Share</button>
       <button class="btn-sm btn-download" id="dlAudioBtn" style="display:none" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
       <button class="btn-sm btn-download" id="dlVideoBtn" style="display:none" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
@@ -1143,6 +1168,7 @@ let sessLoops      = 0;
 let autoSaved      = false;
 let loopA          = null;
 let loopB          = null;
+let curSpeed       = 1;
 let duration       = 0;
 let abInterval     = null;
 let progressTimer  = null;
@@ -1326,6 +1352,7 @@ async function loadLibraryFromAtlas(retries = 2) {
           lastPlayedAt: e.lastPlayedAt ? new Date(e.lastPlayedAt).getTime() : null,
           loopA:   e.loopA ?? null,
           loopB:   e.loopB ?? null,
+          speed:   e.speed ?? null,
           playlistId: e.playlistId ?? null,
         };
       }
@@ -1394,12 +1421,14 @@ async function importFromLocalStorage() {
         lastPlayedAt: new Date(_lastPlayed).toISOString(),
         loopA:   s.loopA ?? null,
         loopB:   s.loopB ?? null,
+        speed:   s.speed ?? null,
         playlistId: s.playlistId ?? null,
       });
       serverLibCache[videoId] = {
         title: s.title || 'Unknown', loops: s.loops || 0, addedAt: _addedAt,
         lastPlayedAt: _lastPlayed,
-        loopA: s.loopA ?? null, loopB: s.loopB ?? null, playlistId: s.playlistId ?? null,
+        loopA: s.loopA ?? null, loopB: s.loopB ?? null, speed: s.speed ?? null,
+        playlistId: s.playlistId ?? null,
       };
       imported++;
     } catch (_) {
@@ -1573,7 +1602,7 @@ function extractPlaylistId(raw) {
   return m ? m[1] : null;
 }
 
-// ── Deep links: /watch?v=ID&a=12.3&b=45.6, ?list=PLAYLISTID, /VIDEOID ───────
+// ── Deep links: /watch?v=ID&a=12.3&b=45.6&s=0.75, ?list=PLAYLISTID, /VIDEOID
 // Lets people swap youtube.com → repeat-videos.com in the address bar and
 // makes shared loop links open the right video with the sender's A-B points.
 let shareAB = null;
@@ -1588,7 +1617,9 @@ function parseDeepLink() {
   let a = parseFloat(qs.get('a')), b = parseFloat(qs.get('b'));
   if (!isFinite(a) || a < 0) a = null;
   if (!isFinite(b) || b <= 0 || (a !== null && b <= a + 0.5)) b = null;
-  return { vid, listId, a, b };
+  let s = parseFloat(qs.get('s'));
+  if (!isFinite(s) || s < 0.25 || s > 2 || s === 1) s = null;
+  return { vid, listId, a, b, s };
 }
 const deepLink = parseDeepLink();
 
@@ -1931,6 +1962,62 @@ function saveAbToLib() {
   }
 }
 
+// ── Playback speed ─────────────────────────────────────────────────────────
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+function updateSpeedUI() {
+  document.querySelectorAll('#speedCtl button').forEach(b =>
+    b.classList.toggle('on', parseFloat(b.dataset.speed) === curSpeed));
+}
+
+function setSpeed(v, persist = true) {
+  curSpeed = v;
+  if (player && ready) { try { player.setPlaybackRate(v); } catch (_) {} }
+  updateSpeedUI();
+  if (persist) saveSpeedToLib();
+}
+
+function saveSpeedToLib() {
+  if (!curId) return;
+  const speed = curSpeed === 1 ? null : curSpeed; // 1× is the default — store null
+  // Setting a speed is an explicit user action — clear default flag and persist
+  if (isDefaultVideo) {
+    isDefaultVideo = false;
+    localStorage.setItem(LAST_PLAYED_KEY, curId);
+  }
+  if (serverLibCache !== null) {
+    if (serverLibCache[curId]) {
+      serverLibCache[curId].speed = speed;
+      api('PATCH', { videoId: curId, speed }).catch(() => {});
+    } else {
+      const _plId = currentPlaylistId || null;
+      api('POST', { videoId: curId, title: curTitle || 'Unknown', loops: 0, addedAt: new Date().toISOString(), loopA, loopB, speed, playlistId: _plId }).catch(() => {});
+      serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, speed, playlistId: _plId };
+      renderLib();
+    }
+  } else {
+    const lib = loadLib();
+    if (lib[curId]) {
+      lib[curId].speed = speed; saveLib(lib);
+    } else {
+      lib[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, speed, playlistId: currentPlaylistId || null };
+      saveLib(lib);
+      renderLib();
+    }
+  }
+}
+
+function initSpeedCtl() {
+  const box = document.getElementById('speedCtl');
+  box.innerHTML = SPEEDS.map(s =>
+    `<button data-speed="${s}"${s === 1 ? ' class="on"' : ''}>${s}×</button>`).join('');
+  box.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-speed]');
+    if (btn) setSpeed(parseFloat(btn.dataset.speed));
+  });
+}
+initSpeedCtl();
+
 function initAbBar() {
   const bar = document.getElementById('abBar');
 
@@ -2122,6 +2209,7 @@ function onState(e) {
           const entry = lib[curId];
           loopA = entry?.loopA ?? null;
           loopB = entry?.loopB ?? null;
+          setSpeed(entry?.speed ?? 1, false);
           document.getElementById('totalCount').textContent = entry?.loops || 0;
           updateAbBar();
           // Seek to boundary A and restart A/B monitor with restored boundaries
@@ -2257,12 +2345,15 @@ function playVideo(id, keepPlaylist, _isDefault, _keepQueue) {
   const entry = lib[id];
   loopA = entry?.loopA ?? null;
   loopB = entry?.loopB ?? null;
-  // A-B points from a shared link override the saved ones for this session
+  let spd = entry?.speed ?? 1;
+  // A-B points / speed from a shared link override the saved ones for this session
   if (shareAB && shareAB.id === id) {
     if (shareAB.a !== null) loopA = shareAB.a;
     if (shareAB.b !== null) loopB = shareAB.b;
+    if (shareAB.s) spd = shareAB.s;
     shareAB = null;
   }
+  setSpeed(spd, false);
   updateAbBar();
 
   // Update lastPlayedAt for existing entries
@@ -2304,8 +2395,8 @@ function tryAutoPlay() {
       return;
     }
     if (deepLink.vid) {
-      if (deepLink.a !== null || deepLink.b !== null) {
-        shareAB = { id: deepLink.vid, a: deepLink.a, b: deepLink.b };
+      if (deepLink.a !== null || deepLink.b !== null || deepLink.s) {
+        shareAB = { id: deepLink.vid, a: deepLink.a, b: deepLink.b, s: deepLink.s };
       }
       if (deepLink.listId) { // radio/mix context
         currentPlaylistId = deepLink.listId;
@@ -2368,11 +2459,12 @@ function handlePlay() {
   }
 }
 
-async function shareVideo(id, a, b, dur, title) {
+async function shareVideo(id, a, b, dur, title, speed) {
   const u = new URL(location.origin + '/watch');
   u.searchParams.set('v', id);
   if (a !== null && a !== undefined && a > 0.05) u.searchParams.set('a', Math.round(a * 10) / 10);
   if (b !== null && b !== undefined && b > 0 && (!dur || b < dur - 0.05)) u.searchParams.set('b', Math.round(b * 10) / 10);
+  if (speed && speed !== 1) u.searchParams.set('s', speed);
   const url = u.toString();
   if (navigator.share) {
     try { await navigator.share({ title: title || 'Repeat Videos', url }); return; }
@@ -2386,12 +2478,12 @@ function shareSong(id, e) {
   e.stopPropagation();
   const lib = loadLib();
   const s = lib[id] || {};
-  shareVideo(id, s.loopA ?? null, s.loopB ?? null, null, s.title);
+  shareVideo(id, s.loopA ?? null, s.loopB ?? null, null, s.title, s.speed ?? null);
 }
 
 document.getElementById('shareBtn').addEventListener('click', () => {
   if (!curId) { toast('⚠️ No video selected'); return; }
-  shareVideo(curId, loopA, loopB, duration, curTitle);
+  shareVideo(curId, loopA, loopB, duration, curTitle, curSpeed);
 });
 
 document.getElementById('playBtn').addEventListener('click', handlePlay);
@@ -2813,6 +2905,7 @@ async function importHistory(e) {
         lastPlayedAt: entry.lastPlayedAt || null,
         loopA:        entry.loopA ?? null,
         loopB:        entry.loopB ?? null,
+        speed:        entry.speed ?? null,
         playlistId:   entry.playlistId ?? null,
       };
 
@@ -2826,6 +2919,7 @@ async function importHistory(e) {
           lastPlayedAt: newEntry.lastPlayedAt ? new Date(newEntry.lastPlayedAt).toISOString() : null,
           loopA: newEntry.loopA,
           loopB: newEntry.loopB,
+          speed: newEntry.speed,
           playlistId: newEntry.playlistId,
         });
       } else {

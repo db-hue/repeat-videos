@@ -114,12 +114,12 @@ exports.handler = async (event) => {
 
     // POST — upsert a video entry (insert only if not already present)
     if (event.httpMethod === 'POST') {
-      const { videoId, title, loopA = null, loopB = null, loops = 0, addedAt, lastPlayedAt, playlistId = null } = body;
+      const { videoId, title, loopA = null, loopB = null, speed = null, loops = 0, addedAt, lastPlayedAt, playlistId = null } = body;
       await col.updateOne(
         { owner_id: userId, videoId },
         { $setOnInsert: {
             owner_id: userId, videoId, title,
-            loops, loopA, loopB, playlistId,
+            loops, loopA, loopB, speed, playlistId,
             addedAt: new Date(addedAt || Date.now()),
             lastPlayedAt: lastPlayedAt ? new Date(lastPlayedAt) : new Date(addedAt || Date.now()),
           }
@@ -131,7 +131,7 @@ exports.handler = async (event) => {
 
     // PATCH — update fields (increment loops, set title/loopA/loopB)
     if (event.httpMethod === 'PATCH') {
-      const { videoId, incLoops, title, loopA, loopB, playlistId, lastPlayedAt } = body;
+      const { videoId, incLoops, title, loopA, loopB, speed, playlistId, lastPlayedAt } = body;
       const update = {};
       if (incLoops) {
         // incLoops: true increments by 1; a positive number adds that many
@@ -143,6 +143,7 @@ exports.handler = async (event) => {
       if (title !== undefined) $set.title = title;
       if (loopA !== undefined) $set.loopA = loopA;
       if (loopB !== undefined) $set.loopB = loopB;
+      if (speed !== undefined) $set.speed = speed;
       if (playlistId !== undefined) $set.playlistId = playlistId;
       if (lastPlayedAt !== undefined) $set.lastPlayedAt = new Date(lastPlayedAt);
       if (Object.keys($set).length) update.$set = $set;
