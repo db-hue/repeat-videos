@@ -796,6 +796,18 @@
       transition: color 0.2s;
     }
     .btn-del:hover { color: var(--red); }
+
+    .btn-share-lib {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 4px 6px;
+      border-radius: 6px;
+      transition: color 0.2s;
+    }
+    .btn-share-lib:hover { color: var(--accent2); }
     .btn-playlist-lib {
       background: none;
       border: none;
@@ -2356,19 +2368,30 @@ function handlePlay() {
   }
 }
 
-document.getElementById('shareBtn').addEventListener('click', async () => {
-  if (!curId) { toast('⚠️ No video selected'); return; }
+async function shareVideo(id, a, b, dur, title) {
   const u = new URL(location.origin + '/watch');
-  u.searchParams.set('v', curId);
-  if (loopA !== null && loopA > 0.05) u.searchParams.set('a', Math.round(loopA * 10) / 10);
-  if (loopB !== null && (!duration || loopB < duration - 0.05)) u.searchParams.set('b', Math.round(loopB * 10) / 10);
+  u.searchParams.set('v', id);
+  if (a !== null && a !== undefined && a > 0.05) u.searchParams.set('a', Math.round(a * 10) / 10);
+  if (b !== null && b !== undefined && b > 0 && (!dur || b < dur - 0.05)) u.searchParams.set('b', Math.round(b * 10) / 10);
   const url = u.toString();
   if (navigator.share) {
-    try { await navigator.share({ title: curTitle || 'Repeat Videos', url }); return; }
+    try { await navigator.share({ title: title || 'Repeat Videos', url }); return; }
     catch (err) { if (err.name === 'AbortError') return; }
   }
   try { await navigator.clipboard.writeText(url); toast('🔗 Link copied — send it to anyone'); }
   catch (_) { toast(`⚠️ Copy failed — link: ${url}`); }
+}
+
+function shareSong(id, e) {
+  e.stopPropagation();
+  const lib = loadLib();
+  const s = lib[id] || {};
+  shareVideo(id, s.loopA ?? null, s.loopB ?? null, null, s.title);
+}
+
+document.getElementById('shareBtn').addEventListener('click', () => {
+  if (!curId) { toast('⚠️ No video selected'); return; }
+  shareVideo(curId, loopA, loopB, duration, curTitle);
 });
 
 document.getElementById('playBtn').addEventListener('click', handlePlay);
@@ -2659,6 +2682,7 @@ function renderLib() {
         <span class="num">${s.loops || 0}</span>
         <span class="lbl">counter</span>
       </div>
+      <button class="btn-share-lib" onclick="shareSong('${id}', event)" title="Share link — includes saved A-B loop points">🔗</button>
       <button class="btn-del" onclick="delSong('${id}', event)" title="Remove">🗑️</button>
     </div>
   `).join('');
