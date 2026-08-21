@@ -61,7 +61,36 @@ async function verifyAdmin(authHeader) {
   }
   let email = payload.email || null;
   if (!email) email = await getEmailFromAuth0(authHeader, payload.sub);
-  if (email !== ADMIN_EMAIL) throw Object.assign(new Error('Forbidden'), { status: 403 });
+  // Admin is always allowed (no external dependency — this must keep working
+  // even when Netlify/Atlas are unreachable). Other users need the
+  // can_download grant set in the admin dashboard.
+  if (email === ADMIN_EMAIL) return;
+  if (!(await isDownloadGranted(authHeader, payload.sub))) {
+    throw Object.assign(new Error('Forbidden'), { status: 403 });
+  }
+}
+
+// Per-user download grants live in MongoDB behind the site's library
+// function (this service deliberately has no Mongo dependency). The user's
+// own Bearer token is forwarded; the function answers for that user only.
+const ENTITLEMENT_URL = process.env.ENTITLEMENT_URL
+  || 'https://repeat-videos.com/.netlify/functions/library?me=1';
+const grantCache = new Map(); // sub -> { allowed, exp }
+
+async function isDownloadGranted(authHeader, sub) {
+  const hit = grantCache.get(sub);
+  if (hit && hit.exp > Date.now()) return hit.allowed;
+  let allowed = false;
+  try {
+    const res = await fetch(ENTITLEMENT_URL, {
+      headers: { Authorization: authHeader },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) allowed = (await res.json())?.can_download === true;
+  } catch { /* entitlement service unreachable → deny non-admins */ }
+  // Denials expire fast so a fresh grant applies within a minute
+  grantCache.set(sub, { allowed, exp: Date.now() + (allowed ? 5 : 1) * 60_000 });
+  return allowed;
 }
 
 // Access tokens don't carry the email claim; resolve it via Auth0's /userinfo

@@ -4,6 +4,7 @@ const { createRemoteJWKSet, jwtVerify } = require('jose');
 const MONGODB_URI    = process.env.MONGODB_URI;
 const AUTH0_DOMAIN   = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE || 'https://api.repeat-videos.com';
+const ADMIN_EMAIL    = 'd.b@nuolix.com';
 
 let mongoClient = null;
 let jwks        = null;
@@ -104,6 +105,23 @@ exports.handler = async (event) => {
 
     const col = db.collection('library');
 
+    // GET ?me=1 — the caller's own account flags. Used by the frontend to
+    // decide whether to show the direct audio download button, and by the
+    // MF-N download service to authorize non-admin users (it forwards the
+    // user's own Bearer token here instead of talking to Mongo itself).
+    if (event.httpMethod === 'GET' && event.queryStringParameters?.me !== undefined) {
+      const u = await db.collection('users').findOne(
+        { user_id: userId },
+        { projection: { _id: 0, email: 1, can_download: 1 } }
+      );
+      const email = payload.email || u?.email || null;
+      return {
+        statusCode: 200,
+        headers: CORS,
+        body: JSON.stringify({ can_download: email === ADMIN_EMAIL || u?.can_download === true }),
+      };
+    }
+
     // GET — return all library entries for this user
     if (event.httpMethod === 'GET') {
       const docs = await col.find({ owner_id: userId }, { projection: { _id: 0, owner_id: 0 } }).toArray();
@@ -114,12 +132,12 @@ exports.handler = async (event) => {
 
     // POST — upsert a video entry (insert only if not already present)
     if (event.httpMethod === 'POST') {
-      const { videoId, title, loopA = null, loopB = null, loops = 0, addedAt, lastPlayedAt, playlistId = null } = body;
+      const { videoId, title, loopA = null, loopB = null, speed = null, loops = 0, addedAt, lastPlayedAt, playlistId = null } = body;
       await col.updateOne(
         { owner_id: userId, videoId },
         { $setOnInsert: {
             owner_id: userId, videoId, title,
-            loops, loopA, loopB, playlistId,
+            loops, loopA, loopB, speed, playlistId,
             addedAt: new Date(addedAt || Date.now()),
             lastPlayedAt: lastPlayedAt ? new Date(lastPlayedAt) : new Date(addedAt || Date.now()),
           }
@@ -131,7 +149,7 @@ exports.handler = async (event) => {
 
     // PATCH — update fields (increment loops, set title/loopA/loopB)
     if (event.httpMethod === 'PATCH') {
-      const { videoId, incLoops, title, loopA, loopB, playlistId, lastPlayedAt } = body;
+      const { videoId, incLoops, title, loopA, loopB, speed, playlistId, lastPlayedAt } = body;
       const update = {};
       if (incLoops) {
         // incLoops: true increments by 1; a positive number adds that many
@@ -143,6 +161,7 @@ exports.handler = async (event) => {
       if (title !== undefined) $set.title = title;
       if (loopA !== undefined) $set.loopA = loopA;
       if (loopB !== undefined) $set.loopB = loopB;
+      if (speed !== undefined) $set.speed = speed;
       if (playlistId !== undefined) $set.playlistId = playlistId;
       if (lastPlayedAt !== undefined) $set.lastPlayedAt = new Date(lastPlayedAt);
       if (Object.keys($set).length) update.$set = $set;

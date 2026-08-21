@@ -12,12 +12,14 @@
   <meta property="og:url" content="https://repeat-videos.com/" />
   <meta property="og:title" content="Repeat Videos — Loop YouTube Videos on Repeat" />
   <meta property="og:description" content="Loop any YouTube video on repeat. Set A-B loop points, track play counts, build a personal library, and create playlists." />
+  <meta property="og:image" content="https://repeat-videos.com/logo.png" />
   <meta property="og:site_name" content="Repeat Videos" />
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="Repeat Videos — Loop YouTube Videos on Repeat" />
   <meta name="twitter:description" content="Loop any YouTube video on repeat. Set A-B loop points, track play counts, and build a personal library." />
+  <meta name="twitter:image" content="https://repeat-videos.com/logo.png" />
 
   <!-- SEO extras -->
   <meta name="robots" content="index, follow" />
@@ -300,6 +302,11 @@
     .player-meta {
       padding: 16px 20px;
       display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .meta-row {
+      display: flex;
       align-items: center;
       gap: 10px;
       flex-wrap: wrap;
@@ -366,6 +373,44 @@
       opacity: 1;
       cursor: pointer;
     }
+
+    .btn-share {
+      border-color: var(--border);
+      color: var(--muted);
+      background: transparent;
+      /* Right-align the action cluster (Share + downloads) away from the
+         playback controls (Loop / Playlist / speed) */
+      margin-left: auto;
+    }
+    .btn-share:hover {
+      border-color: var(--accent2);
+      color: var(--accent2);
+    }
+
+    .speed-ctl {
+      display: flex;
+      align-items: stretch;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--bg2);
+    }
+    .speed-ctl button {
+      background: transparent;
+      border: none;
+      border-right: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 7px 9px;
+      transition: color 0.2s, background 0.2s;
+      white-space: nowrap;
+    }
+    .speed-ctl button:last-child { border-right: none; }
+    .speed-ctl button:hover { color: var(--text); }
+    .speed-ctl button.on { color: var(--accent2); background: rgba(0, 212, 255, 0.12); }
 
     .btn-download {
       border-color: var(--border);
@@ -784,6 +829,18 @@
       transition: color 0.2s;
     }
     .btn-del:hover { color: var(--red); }
+
+    .btn-share-lib {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 4px 6px;
+      border-radius: 6px;
+      transition: color 0.2s;
+    }
+    .btn-share-lib:hover { color: var(--accent2); }
     .btn-playlist-lib {
       background: none;
       border: none;
@@ -912,6 +969,21 @@
       vertical-align: middle;
       margin-right: 8px;
     }
+    .btn-grant {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 3px 8px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-grant:hover { color: var(--text); border-color: var(--accent); }
+    .btn-grant.on { color: var(--green); border-color: var(--green); }
+
     .admin-loading {
       text-align: center;
       color: var(--muted);
@@ -964,7 +1036,8 @@
       .logo-icon { height: 36px; width: 36px; }
       .auth-area { margin-left: auto; }
       .input-row { flex-direction: column; }
-      .player-meta { gap: 8px; }
+      .player-meta { gap: 10px; }
+      .meta-row { gap: 8px; }
       .vid-title { order: -1; width: 100%; }
       .user-name { display: none; }
       /* Comfortable tap targets for the control buttons on touch screens */
@@ -1017,14 +1090,20 @@
     </div>
 
     <div class="player-meta">
-      <div class="vid-title" id="vidTitle">No video selected</div>
-      <div class="badge">Session &nbsp;<b id="sessCount">0</b>&nbsp;counter</div>
-      <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
-      <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
-      <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
-      <button class="btn-sm btn-download" id="dlAudioBtn" style="display:none" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
-      <button class="btn-sm btn-download" id="dlVideoBtn" style="display:none" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
-      <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Admin only — downloads the audio track as an MP4 file">⬇ Audio MP4</button>
+      <div class="meta-row">
+        <div class="vid-title" id="vidTitle">No video selected</div>
+        <div class="badge">Session &nbsp;<b id="sessCount">0</b>&nbsp;counter</div>
+        <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
+      </div>
+      <div class="meta-row">
+        <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
+        <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
+        <div class="speed-ctl" id="speedCtl" title="Playback speed — saved per video"></div>
+        <button class="btn-sm btn-share" id="shareBtn" title="Copy a link to this video — includes your A-B loop points">🔗 Share</button>
+        <button class="btn-sm btn-download" id="dlAudioBtn" style="display:none" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
+        <button class="btn-sm btn-download" id="dlVideoBtn" style="display:none" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
+        <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Downloads the audio track as an MP4 file">⬇ Audio MP4</button>
+      </div>
     </div>
   </div>
 
@@ -1118,6 +1197,7 @@ let sessLoops      = 0;
 let autoSaved      = false;
 let loopA          = null;
 let loopB          = null;
+let curSpeed       = 1;
 let duration       = 0;
 let abInterval     = null;
 let progressTimer  = null;
@@ -1185,15 +1265,28 @@ function saveLib(lib) {
 
 // ── Auth UI ────────────────────────────────────────────────────────────────
 // All download options are sign-in only; the direct Audio MP4 additionally
-// requires the admin account.
+// requires the admin account or a per-user grant set in the admin dashboard.
+let canDownloadAudio = false; // server-side grant, fetched after login
+
 function updateDownloadButtons(user) {
   const signedIn = !!user;
-  const isAdmin  = signedIn && user.email === ADMIN_EMAIL;
-  // Admin has the direct Audio MP4 download, so the external audio
-  // downloader button is redundant for them.
-  document.getElementById('dlAudioBtn').style.display    = signedIn && !isAdmin ? '' : 'none';
+  const direct   = signedIn && (user.email === ADMIN_EMAIL || canDownloadAudio);
+  // The direct Audio MP4 download replaces the external audio downloader
+  // button for users who have it.
+  document.getElementById('dlAudioBtn').style.display    = signedIn && !direct ? '' : 'none';
   document.getElementById('dlVideoBtn').style.display    = signedIn ? '' : 'none';
-  document.getElementById('dlAudioMp4Btn').style.display = isAdmin ? '' : 'none';
+  document.getElementById('dlAudioMp4Btn').style.display = direct ? '' : 'none';
+}
+
+async function fetchDownloadGrant(user) {
+  if (!user || user.email === ADMIN_EMAIL) return;
+  try {
+    const token = await getToken();
+    const res = await fetch(API_URL + '?me=1', { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) return;
+    canDownloadAudio = (await res.json())?.can_download === true;
+    if (canDownloadAudio) updateDownloadButtons(user);
+  } catch (_) { /* stay with the default buttons */ }
 }
 
 function showGuestUI() {
@@ -1252,6 +1345,7 @@ function showUserInfo(user) {
   const avatar = imgTag + fallback;
   const isAdmin = user.email === ADMIN_EMAIL;
   updateDownloadButtons(user);
+  fetchDownloadGrant(user); // may reveal the direct download button async
   area.innerHTML = `
     <div class="user-info">
       ${avatar}
@@ -1301,6 +1395,7 @@ async function loadLibraryFromAtlas(retries = 2) {
           lastPlayedAt: e.lastPlayedAt ? new Date(e.lastPlayedAt).getTime() : null,
           loopA:   e.loopA ?? null,
           loopB:   e.loopB ?? null,
+          speed:   e.speed ?? null,
           playlistId: e.playlistId ?? null,
         };
       }
@@ -1369,12 +1464,14 @@ async function importFromLocalStorage() {
         lastPlayedAt: new Date(_lastPlayed).toISOString(),
         loopA:   s.loopA ?? null,
         loopB:   s.loopB ?? null,
+        speed:   s.speed ?? null,
         playlistId: s.playlistId ?? null,
       });
       serverLibCache[videoId] = {
         title: s.title || 'Unknown', loops: s.loops || 0, addedAt: _addedAt,
         lastPlayedAt: _lastPlayed,
-        loopA: s.loopA ?? null, loopB: s.loopB ?? null, playlistId: s.playlistId ?? null,
+        loopA: s.loopA ?? null, loopB: s.loopB ?? null, speed: s.speed ?? null,
+        playlistId: s.playlistId ?? null,
       };
       imported++;
     } catch (_) {
@@ -1547,6 +1644,27 @@ function extractPlaylistId(raw) {
   const m = (raw || '').match(/[?&]list=([A-Za-z0-9_-]+)/);
   return m ? m[1] : null;
 }
+
+// ── Deep links: /watch?v=ID&a=12.3&b=45.6&s=0.75, ?list=PLAYLISTID, /VIDEOID
+// Lets people swap youtube.com → repeat-videos.com in the address bar and
+// makes shared loop links open the right video with the sender's A-B points.
+let shareAB = null;
+function parseDeepLink() {
+  const qs = new URLSearchParams(location.search);
+  if (qs.has('code') && qs.has('state')) return null; // Auth0 redirect callback
+  const pathId  = location.pathname.match(/^\/(?:watch\/)?([A-Za-z0-9_-]{11})$/);
+  const vid     = extractId(qs.get('v') || '') || (pathId ? pathId[1] : null);
+  const rawList = qs.get('list') || '';
+  const listId  = /^[A-Za-z0-9_-]{2,}$/.test(rawList) ? rawList : null;
+  if (!vid && !listId) return null;
+  let a = parseFloat(qs.get('a')), b = parseFloat(qs.get('b'));
+  if (!isFinite(a) || a < 0) a = null;
+  if (!isFinite(b) || b <= 0 || (a !== null && b <= a + 0.5)) b = null;
+  let s = parseFloat(qs.get('s'));
+  if (!isFinite(s) || s < 0.25 || s > 2 || s === 1) s = null;
+  return { vid, listId, a, b, s };
+}
+const deepLink = parseDeepLink();
 
 // ── Playlist ───────────────────────────────────────────────────────────────
 function updatePlaylistBtn() {
@@ -1887,6 +2005,62 @@ function saveAbToLib() {
   }
 }
 
+// ── Playback speed ─────────────────────────────────────────────────────────
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+function updateSpeedUI() {
+  document.querySelectorAll('#speedCtl button').forEach(b =>
+    b.classList.toggle('on', parseFloat(b.dataset.speed) === curSpeed));
+}
+
+function setSpeed(v, persist = true) {
+  curSpeed = v;
+  if (player && ready) { try { player.setPlaybackRate(v); } catch (_) {} }
+  updateSpeedUI();
+  if (persist) saveSpeedToLib();
+}
+
+function saveSpeedToLib() {
+  if (!curId) return;
+  const speed = curSpeed === 1 ? null : curSpeed; // 1× is the default — store null
+  // Setting a speed is an explicit user action — clear default flag and persist
+  if (isDefaultVideo) {
+    isDefaultVideo = false;
+    localStorage.setItem(LAST_PLAYED_KEY, curId);
+  }
+  if (serverLibCache !== null) {
+    if (serverLibCache[curId]) {
+      serverLibCache[curId].speed = speed;
+      api('PATCH', { videoId: curId, speed }).catch(() => {});
+    } else {
+      const _plId = currentPlaylistId || null;
+      api('POST', { videoId: curId, title: curTitle || 'Unknown', loops: 0, addedAt: new Date().toISOString(), loopA, loopB, speed, playlistId: _plId }).catch(() => {});
+      serverLibCache[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, speed, playlistId: _plId };
+      renderLib();
+    }
+  } else {
+    const lib = loadLib();
+    if (lib[curId]) {
+      lib[curId].speed = speed; saveLib(lib);
+    } else {
+      lib[curId] = { title: curTitle || 'Unknown', loops: 0, addedAt: Date.now(), loopA, loopB, speed, playlistId: currentPlaylistId || null };
+      saveLib(lib);
+      renderLib();
+    }
+  }
+}
+
+function initSpeedCtl() {
+  const box = document.getElementById('speedCtl');
+  box.innerHTML = SPEEDS.map(s =>
+    `<button data-speed="${s}"${s === 1 ? ' class="on"' : ''}>${s}×</button>`).join('');
+  box.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-speed]');
+    if (btn) setSpeed(parseFloat(btn.dataset.speed));
+  });
+}
+initSpeedCtl();
+
 function initAbBar() {
   const bar = document.getElementById('abBar');
 
@@ -2078,6 +2252,7 @@ function onState(e) {
           const entry = lib[curId];
           loopA = entry?.loopA ?? null;
           loopB = entry?.loopB ?? null;
+          setSpeed(entry?.speed ?? 1, false);
           document.getElementById('totalCount').textContent = entry?.loops || 0;
           updateAbBar();
           // Seek to boundary A and restart A/B monitor with restored boundaries
@@ -2213,6 +2388,15 @@ function playVideo(id, keepPlaylist, _isDefault, _keepQueue) {
   const entry = lib[id];
   loopA = entry?.loopA ?? null;
   loopB = entry?.loopB ?? null;
+  let spd = entry?.speed ?? 1;
+  // A-B points / speed from a shared link override the saved ones for this session
+  if (shareAB && shareAB.id === id) {
+    if (shareAB.a !== null) loopA = shareAB.a;
+    if (shareAB.b !== null) loopB = shareAB.b;
+    if (shareAB.s) spd = shareAB.s;
+    shareAB = null;
+  }
+  setSpeed(spd, false);
   updateAbBar();
 
   // Update lastPlayedAt for existing entries
@@ -2245,6 +2429,28 @@ function playVideo(id, keepPlaylist, _isDefault, _keepQueue) {
 function tryAutoPlay() {
   if (autoPlayDone) return;
   autoPlayDone = true;
+  // Deep link takes priority over last-played session restore
+  if (deepLink) {
+    // Regular playlist link → load the playlist (same semantics as handlePlay)
+    if (deepLink.listId && (!deepLink.vid || !deepLink.listId.startsWith('RD'))) {
+      if (ready && player) loadPlaylist(deepLink.listId);
+      else pendingAutoPlay = 'playlist:' + deepLink.listId;
+      return;
+    }
+    if (deepLink.vid) {
+      if (deepLink.a !== null || deepLink.b !== null || deepLink.s) {
+        shareAB = { id: deepLink.vid, a: deepLink.a, b: deepLink.b, s: deepLink.s };
+      }
+      if (deepLink.listId) { // radio/mix context
+        currentPlaylistId = deepLink.listId;
+        playlistMode = false;
+        updatePlaylistBtn();
+      }
+      if (ready && player) playVideo(deepLink.vid);
+      else pendingAutoPlay = deepLink.vid;
+      return;
+    }
+  }
   let last = localStorage.getItem(LAST_PLAYED_KEY);
   let useDefault = false;
   if (!last) {
@@ -2295,6 +2501,33 @@ function handlePlay() {
     playVideo(vidId);
   }
 }
+
+async function shareVideo(id, a, b, dur, title, speed) {
+  const u = new URL(location.origin + '/watch');
+  u.searchParams.set('v', id);
+  if (a !== null && a !== undefined && a > 0.05) u.searchParams.set('a', Math.round(a * 10) / 10);
+  if (b !== null && b !== undefined && b > 0 && (!dur || b < dur - 0.05)) u.searchParams.set('b', Math.round(b * 10) / 10);
+  if (speed && speed !== 1) u.searchParams.set('s', speed);
+  const url = u.toString();
+  if (navigator.share) {
+    try { await navigator.share({ title: title || 'Repeat Videos', url }); return; }
+    catch (err) { if (err.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(url); toast('🔗 Link copied — send it to anyone'); }
+  catch (_) { toast(`⚠️ Copy failed — link: ${url}`); }
+}
+
+function shareSong(id, e) {
+  e.stopPropagation();
+  const lib = loadLib();
+  const s = lib[id] || {};
+  shareVideo(id, s.loopA ?? null, s.loopB ?? null, null, s.title, s.speed ?? null);
+}
+
+document.getElementById('shareBtn').addEventListener('click', () => {
+  if (!curId) { toast('⚠️ No video selected'); return; }
+  shareVideo(curId, loopA, loopB, duration, curTitle, curSpeed);
+});
 
 document.getElementById('playBtn').addEventListener('click', handlePlay);
 document.getElementById('urlInput').addEventListener('keypress', e => {
@@ -2585,6 +2818,7 @@ function renderLib() {
         <span class="lbl">counter</span>
       </div>
       <button class="btn-del" onclick="delSong('${id}', event)" title="Remove">🗑️</button>
+      <button class="btn-share-lib" onclick="shareSong('${id}', event)" title="Share link — includes saved A-B loop points">🔗</button>
     </div>
   `).join('');
 
@@ -2714,6 +2948,7 @@ async function importHistory(e) {
         lastPlayedAt: entry.lastPlayedAt || null,
         loopA:        entry.loopA ?? null,
         loopB:        entry.loopB ?? null,
+        speed:        entry.speed ?? null,
         playlistId:   entry.playlistId ?? null,
       };
 
@@ -2727,6 +2962,7 @@ async function importHistory(e) {
           lastPlayedAt: newEntry.lastPlayedAt ? new Date(newEntry.lastPlayedAt).toISOString() : null,
           loopA: newEntry.loopA,
           loopB: newEntry.loopB,
+          speed: newEntry.speed,
           playlistId: newEntry.playlistId,
         });
       } else {
@@ -2792,6 +3028,25 @@ async function loadAdmin() {
   }
 }
 
+async function toggleUserDownload(userId, grant, btn) {
+  btn.disabled = true;
+  try {
+    const token = await getToken();
+    const res = await fetch(ADMIN_API_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, can_download: grant }),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    toast(grant ? '✓ Audio download granted' : 'Audio download revoked');
+    loadAdmin(); // re-render the table with the new state
+  } catch (err) {
+    console.error('Grant update failed:', err);
+    toast('⚠️ Could not update: ' + err.message);
+    btn.disabled = false;
+  }
+}
+
 function renderAdmin(data) {
   const panel = document.getElementById('adminPanel');
   const totalVideos = data.users.reduce((s, u) => s + u.videoCount, 0);
@@ -2824,6 +3079,7 @@ function renderAdmin(data) {
           <th>Last login</th>
           <th>Last activity</th>
           <th>Joined</th>
+          <th>Audio DL</th>
         </tr>
       </thead>
       <tbody>
@@ -2837,6 +3093,11 @@ function renderAdmin(data) {
             <td>${u.last_login ? fmtDate(u.last_login) : '—'}</td>
             <td>${u.lastActivity ? fmtDate(u.lastActivity) : '—'}</td>
             <td>${u.first_login ? fmtDate(u.first_login) : '—'}</td>
+            <td>${u.email === ADMIN_EMAIL
+              ? '<span class="btn-grant on" style="cursor:default">✓ admin</span>'
+              : `<button class="btn-grant ${u.can_download ? 'on' : ''}"
+                   onclick="toggleUserDownload('${esc(u.user_id).replace(/'/g, '')}', ${!u.can_download}, this)"
+                   title="${u.can_download ? 'Revoke' : 'Grant'} direct audio download">${u.can_download ? '✓ allowed' : '✗ off'}</button>`}</td>
           </tr>
         `).join('')}
       </tbody>

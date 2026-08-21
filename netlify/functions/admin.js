@@ -42,7 +42,7 @@ async function verifyToken(authHeader) {
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Content-Type':                 'application/json',
 };
 
@@ -51,7 +51,7 @@ exports.handler = async (event) => {
     return { statusCode: 204, headers: CORS, body: '' };
   }
 
-  if (event.httpMethod !== 'GET') {
+  if (event.httpMethod !== 'GET' && event.httpMethod !== 'POST') {
     return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
 
@@ -74,13 +74,35 @@ exports.handler = async (event) => {
     return { statusCode: 403, headers: CORS, body: JSON.stringify({ error: 'Forbidden' }) };
   }
 
+  // 3. POST — grant/revoke per-user rights (currently: direct audio download)
+  if (event.httpMethod === 'POST') {
+    try {
+      const body = JSON.parse(event.body || '{}');
+      const targetId = body.user_id;
+      if (!targetId || typeof body.can_download !== 'boolean') {
+        return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'user_id and can_download (boolean) required' }) };
+      }
+      const r = await db.collection('users').updateOne(
+        { user_id: targetId },
+        { $set: { can_download: body.can_download } }
+      );
+      if (!r.matchedCount) {
+        return { statusCode: 404, headers: CORS, body: JSON.stringify({ error: 'User not found' }) };
+      }
+      return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true }) };
+    } catch (err) {
+      console.error('Admin POST error:', err);
+      return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: 'Internal error' }) };
+    }
+  }
+
   try {
-    // 3. Fetch all users with activity stats
+    // 4. Fetch all users with activity stats
     const users = await db.collection('users').find({}, {
-      projection: { _id: 0, user_id: 1, email: 1, name: 1, picture: 1, first_login: 1, last_login: 1, login_count: 1 }
+      projection: { _id: 0, user_id: 1, email: 1, name: 1, picture: 1, first_login: 1, last_login: 1, login_count: 1, can_download: 1 }
     }).sort({ last_login: -1 }).toArray();
 
-    // 4. For each user, get library stats (count + total loops)
+    // 5. For each user, get library stats (count + total loops)
     const stats = await db.collection('library').aggregate([
       { $group: {
         _id: '$owner_id',
