@@ -1050,10 +1050,29 @@
       .input-row { flex-direction: column; }
       .player-meta { gap: 10px; }
       .meta-row { gap: 8px; }
-      .vid-title { order: -1; width: 100%; }
+      /* Title on its own full line (base flex:1 sets flex-basis:0, so a bare
+         width:100% never triggers the wrap), showing up to 2 lines */
+      .vid-title {
+        order: -1;
+        flex: 0 0 100%;
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
       .user-name { display: none; }
       /* Comfortable tap targets for the control buttons on touch screens */
       .player-meta .btn-sm { padding: 9px 12px; }
+      /* Organize the wrapped controls into tidy full-width rows instead of a
+         ragged wrap: counters split one row, Loop+Playlist pair up, the speed
+         control gets its own full-width line, Share+downloads share the last
+         row evenly. flex-wrap does the line breaking; order groups the rows. */
+      .badge { flex: 1; text-align: center; }
+      .btn-loop, .btn-playlist { flex: 1 1 40%; }
+      .speed-ctl { order: 1; width: 100%; }
+      .speed-ctl button { flex: 1; padding: 9px 4px; }
+      .btn-share, .btn-download { flex: 1 1 28%; order: 2; }
+      .btn-share { margin-left: 0; }
     }
   </style>
 </head>
