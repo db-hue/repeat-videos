@@ -47,6 +47,9 @@
   -->
 
   <link rel="icon" type="image/svg+xml" href="logo.svg" />
+  <!-- Plausible analytics (self-hosted, cookieless), proxied via /stats/* -->
+  <script defer data-domain="repeat-videos.com" data-api="/stats/api/event" src="/stats/js/script.js"></script>
+  <script>window.plausible = window.plausible || function() { (window.plausible.q = window.plausible.q || []).push(arguments) }</script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <!-- Auth0 SPA SDK (PKCE — no client secret in the browser) -->

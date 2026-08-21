@@ -18,6 +18,19 @@
   to     = "/sitemap.xml"
   status = 200
 
+# First-party proxy to the self-hosted Plausible on MF-N (Tailscale Funnel).
+# Serving the script and event endpoint from our own domain keeps tracking
+# cookieless AND first-party (not caught by third-party blocklists).
+[[redirects]]
+  from   = "/stats/js/*"
+  to     = "https://nuolix-minisforum-ai.tail810c50.ts.net:8443/js/:splat"
+  status = 200
+
+[[redirects]]
+  from   = "/stats/api/event"
+  to     = "https://nuolix-minisforum-ai.tail810c50.ts.net:8443/api/event"
+  status = 200
+
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
