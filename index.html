@@ -302,6 +302,11 @@
     .player-meta {
       padding: 16px 20px;
       display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .meta-row {
+      display: flex;
       align-items: center;
       gap: 10px;
       flex-wrap: wrap;
@@ -1012,7 +1017,8 @@
       .logo-icon { height: 36px; width: 36px; }
       .auth-area { margin-left: auto; }
       .input-row { flex-direction: column; }
-      .player-meta { gap: 8px; }
+      .player-meta { gap: 10px; }
+      .meta-row { gap: 8px; }
       .vid-title { order: -1; width: 100%; }
       .user-name { display: none; }
       /* Comfortable tap targets for the control buttons on touch screens */
@@ -1065,16 +1071,20 @@
     </div>
 
     <div class="player-meta">
-      <div class="vid-title" id="vidTitle">No video selected</div>
-      <div class="badge">Session &nbsp;<b id="sessCount">0</b>&nbsp;counter</div>
-      <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
-      <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
-      <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
-      <div class="speed-ctl" id="speedCtl" title="Playback speed — saved per video"></div>
-      <button class="btn-sm btn-share" id="shareBtn" title="Copy a link to this video — includes your A-B loop points">🔗 Share</button>
-      <button class="btn-sm btn-download" id="dlAudioBtn" style="display:none" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
-      <button class="btn-sm btn-download" id="dlVideoBtn" style="display:none" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
-      <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Admin only — downloads the audio track as an MP4 file">⬇ Audio MP4</button>
+      <div class="meta-row">
+        <div class="vid-title" id="vidTitle">No video selected</div>
+        <div class="badge">Session &nbsp;<b id="sessCount">0</b>&nbsp;counter</div>
+        <div class="badge">Total &nbsp;<b id="totalCount">0</b>&nbsp;counter</div>
+        <button class="btn-sm btn-share" id="shareBtn" title="Copy a link to this video — includes your A-B loop points">🔗 Share</button>
+        <button class="btn-sm btn-download" id="dlAudioBtn" style="display:none" title="Opens an external downloader — pick MP3 on the page">⬇ Audio</button>
+        <button class="btn-sm btn-download" id="dlVideoBtn" style="display:none" title="Opens an external downloader — pick MP4 on the page">⬇ Video</button>
+        <button class="btn-sm btn-download" id="dlAudioMp4Btn" style="display:none" title="Admin only — downloads the audio track as an MP4 file">⬇ Audio MP4</button>
+      </div>
+      <div class="meta-row">
+        <button class="btn-sm btn-loop on" id="loopBtn">🔁 Loop ON</button>
+        <button class="btn-sm btn-playlist" id="playlistBtn" title="Paste a playlist URL to enable">▶ Playlist</button>
+        <div class="speed-ctl" id="speedCtl" title="Playback speed — saved per video"></div>
+      </div>
     </div>
   </div>
 
