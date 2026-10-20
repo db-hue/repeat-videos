@@ -845,26 +845,31 @@
       transition: color 0.2s;
     }
     .btn-share-lib:hover { color: var(--accent2); }
-    /* 0–3 star rating, laid out as a triangle: 3 on top, 1 and 2 below */
+    /* 0–3 star rating: click the area to bump by one (wraps to 0).
+       0 = one empty star, 1 = one star, 2 = two in a row, 3 = triangle (one on top, two below) */
     .rating {
       display: flex;
       flex-direction: column;
       align-items: center;
+      justify-content: center;
       flex-shrink: 0;
+      min-width: 36px;
+      min-height: 32px;
       line-height: 1;
       padding: 2px 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
     }
-    .rating-row { display: flex; margin-top: -3px; }
+    .rating:hover { background: rgba(245, 197, 24, 0.12); }
+    .rating-row { display: flex; }
+    .rating .rs + .rating-row { margin-top: -3px; }
     .rating .rs {
       font-size: 0.9rem;
-      color: var(--muted);
-      opacity: 0.55;
-      cursor: pointer;
+      color: #f5c518;
       padding: 1px 1px;
-      transition: color 0.15s, opacity 0.15s, transform 0.15s;
     }
-    .rating .rs:hover { opacity: 1; color: #f5c518; transform: scale(1.2); }
-    .rating .rs.on { color: #f5c518; opacity: 1; }
+    .rating .rs.empty { color: var(--muted); opacity: 0.55; }
     .btn-playlist-lib {
       background: none;
       border: none;
@@ -2821,10 +2826,16 @@ function clampRating(v) {
   return Number.isFinite(n) ? Math.max(0, Math.min(3, n)) : 0;
 }
 
-// Star triangle: 3 on top, 1 and 2 below. Click a star to set that rating; click the current one to clear.
+// Only the earned stars are drawn: 0 = empty star, 1 = one, 2 = two in a row,
+// 3 = triangle (one on top, two below). Clicking the area bumps the rating by one, 3 wraps to 0.
 function ratingHtml(id, r) {
-  const star = v => `<span class="rs ${v <= r ? 'on' : ''}" onclick="setRating('${id}', ${v}, event)" title="${v} star${v > 1 ? 's' : ''}">★</span>`;
-  return `<div class="rating" title="Rating: ${r}/3">${star(3)}<div class="rating-row">${star(1)}${star(2)}</div></div>`;
+  const star = '<span class="rs">★</span>';
+  let inner;
+  if (r <= 0)      inner = '<span class="rs empty">☆</span>';
+  else if (r === 1) inner = star;
+  else if (r === 2) inner = `<div class="rating-row">${star}${star}</div>`;
+  else              inner = `${star}<div class="rating-row">${star}${star}</div>`;
+  return `<div class="rating" onclick="bumpRating('${id}', event)" title="Rating ${r}/3 — click to change">${inner}</div>`;
 }
 
 // ── Render library ─────────────────────────────────────────────────────────
@@ -2981,13 +2992,13 @@ function loadPlaylistFromLib(listId, e) {
   loadPlaylist(listId);
 }
 
-async function setRating(id, value, e) {
+async function bumpRating(id, e) {
   e.stopPropagation();
   const lib = loadLib();
   const entry = lib[id];
   if (!entry) return;
-  const prev = entry.rating || 0;
-  const next = clampRating(value) === prev ? 0 : clampRating(value);   // click current star → clear
+  const prev = clampRating(entry.rating);
+  const next = (prev + 1) % 4;        // 0 → 1 → 2 → 3 → 0
   entry.rating = next;                 // optimistic update (serverLibCache or local object)
   if (serverLibCache === null) saveLib(lib);
   if (libSortMode === 'rating') libQueue = null;   // order changed → rebuild play queue
