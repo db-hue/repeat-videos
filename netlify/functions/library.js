@@ -132,12 +132,12 @@ exports.handler = async (event) => {
 
     // POST — upsert a video entry (insert only if not already present)
     if (event.httpMethod === 'POST') {
-      const { videoId, title, loopA = null, loopB = null, speed = null, loops = 0, addedAt, lastPlayedAt, playlistId = null } = body;
+      const { videoId, title, loopA = null, loopB = null, speed = null, loops = 0, addedAt, lastPlayedAt, playlistId = null, favorite = false } = body;
       await col.updateOne(
         { owner_id: userId, videoId },
         { $setOnInsert: {
             owner_id: userId, videoId, title,
-            loops, loopA, loopB, speed, playlistId,
+            loops, loopA, loopB, speed, playlistId, favorite: !!favorite,
             addedAt: new Date(addedAt || Date.now()),
             lastPlayedAt: lastPlayedAt ? new Date(lastPlayedAt) : new Date(addedAt || Date.now()),
           }
@@ -147,9 +147,9 @@ exports.handler = async (event) => {
       return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true }) };
     }
 
-    // PATCH — update fields (increment loops, set title/loopA/loopB)
+    // PATCH — update fields (increment loops, set title/loopA/loopB/favorite)
     if (event.httpMethod === 'PATCH') {
-      const { videoId, incLoops, title, loopA, loopB, speed, playlistId, lastPlayedAt } = body;
+      const { videoId, incLoops, title, loopA, loopB, speed, playlistId, lastPlayedAt, favorite } = body;
       const update = {};
       if (incLoops) {
         // incLoops: true increments by 1; a positive number adds that many
@@ -164,6 +164,7 @@ exports.handler = async (event) => {
       if (speed !== undefined) $set.speed = speed;
       if (playlistId !== undefined) $set.playlistId = playlistId;
       if (lastPlayedAt !== undefined) $set.lastPlayedAt = new Date(lastPlayedAt);
+      if (favorite !== undefined) $set.favorite = !!favorite;
       if (Object.keys($set).length) update.$set = $set;
       if (!Object.keys(update).length) {
         return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: 'No update fields' }) };

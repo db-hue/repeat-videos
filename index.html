@@ -732,10 +732,13 @@
 
     .lib-filter {
       display: none;
+      gap: 8px;
+      align-items: center;
       margin-bottom: 8px;
     }
     .lib-filter input {
-      width: 100%;
+      flex: 1;
+      min-width: 0;
       background: var(--bg2);
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -748,6 +751,21 @@
     }
     .lib-filter input:focus { border-color: var(--accent); }
     .lib-filter input::placeholder { color: var(--muted); }
+    .btn-fav-filter {
+      flex-shrink: 0;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-family: inherit;
+      padding: 7px 12px;
+      white-space: nowrap;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-fav-filter:hover { color: var(--text); border-color: var(--accent); }
+    .btn-fav-filter.on { color: #f5c518; border-color: #f5c518; }
     .sort-header .sh-custom { flex-shrink: 0; }
 
     .btn-move {
@@ -844,6 +862,19 @@
       transition: color 0.2s;
     }
     .btn-share-lib:hover { color: var(--accent2); }
+    .btn-fav {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1.15rem;
+      line-height: 1;
+      padding: 4px 6px;
+      border-radius: 6px;
+      transition: color 0.2s, transform 0.15s;
+    }
+    .btn-fav:hover { color: #f5c518; transform: scale(1.15); }
+    .btn-fav.on { color: #f5c518; }
     .btn-playlist-lib {
       background: none;
       border: none;
@@ -1073,6 +1104,11 @@
       .speed-ctl button { flex: 1; padding: 9px 4px; }
       .btn-share, .btn-download { flex: 1 1 28%; order: 2; }
       .btn-share { margin-left: 0; }
+      /* history rows: make room for the title next to star/counter/buttons */
+      .song-row { gap: 8px; padding: 10px; }
+      .thumb { width: 56px; height: 42px; }
+      .btn-fav, .btn-del, .btn-share-lib, .btn-playlist-lib { padding: 4px 2px; }
+      .playlist-lib-label { display: none; }
     }
   </style>
 </head>
@@ -1168,6 +1204,7 @@
   </div>
   <div class="lib-filter" id="libFilterBox">
     <input type="text" id="libFilterInput" placeholder="Search by name…" autocomplete="off" />
+    <button class="btn-fav-filter" id="libFavBtn" onclick="toggleFavFilter()" title="Show favorites only">☆ Favorites</button>
   </div>
   <div class="sort-header" id="sortBar" style="display:none;">
     <div class="sh-col sh-title" data-sort="title">Name <span class="sort-arrow">▲</span></div>
@@ -1260,6 +1297,7 @@ let userPausedFromLockScreen = false; // track lock screen pause to avoid auto-r
 let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'custom'
 let libSortAsc     = false;     // false = descending (default), true = ascending
 let libFilter      = '';        // search filter for history
+let libFavOnly     = false;     // show only favorites in history
 let customOrder    = JSON.parse(localStorage.getItem('rv_customOrder') || '[]');
 let pollTimer      = null;      // polling timer for cross-device sync
 
@@ -1434,6 +1472,7 @@ async function loadLibraryFromAtlas(retries = 2) {
           loopB:   e.loopB ?? null,
           speed:   e.speed ?? null,
           playlistId: e.playlistId ?? null,
+          favorite: !!e.favorite,
         };
       }
       // Skip the full DOM rebuild when the 5s poll returns identical data
@@ -1479,11 +1518,13 @@ async function importFromLocalStorage() {
     const srvPlayed   = srv.lastPlayedAt || srv.addedAt || 0;
     if (localLoops > 0) patch.incLoops = localLoops;
     if (localPlayed > srvPlayed) patch.lastPlayedAt = new Date(localPlayed).toISOString();
-    if (!patch.incLoops && !patch.lastPlayedAt) continue;
+    if (s.favorite && !srv.favorite) patch.favorite = true;
+    if (!patch.incLoops && !patch.lastPlayedAt && !patch.favorite) continue;
     try {
       await api('PATCH', patch);
       if (patch.incLoops) srv.loops = (srv.loops || 0) + localLoops;
       if (patch.lastPlayedAt) srv.lastPlayedAt = localPlayed;
+      if (patch.favorite) srv.favorite = true;
       merged++;
     } catch (_) {
       failed[videoId] = s;   // keep for retry
@@ -1503,12 +1544,13 @@ async function importFromLocalStorage() {
         loopB:   s.loopB ?? null,
         speed:   s.speed ?? null,
         playlistId: s.playlistId ?? null,
+        favorite: !!s.favorite,
       });
       serverLibCache[videoId] = {
         title: s.title || 'Unknown', loops: s.loops || 0, addedAt: _addedAt,
         lastPlayedAt: _lastPlayed,
         loopA: s.loopA ?? null, loopB: s.loopB ?? null, speed: s.speed ?? null,
-        playlistId: s.playlistId ?? null,
+        playlistId: s.playlistId ?? null, favorite: !!s.favorite,
       };
       imported++;
     } catch (_) {
@@ -2170,8 +2212,7 @@ function advanceToNext() {
     // Play next song from library queue (respects current sort + filter)
     if (!libQueue) {
       const lib = loadLib();
-      let entries = Object.entries(lib);
-      if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
+      const entries = filterLibEntries(Object.entries(lib));
       libQueue = sortLibEntries(entries).map(([id]) => id);
       libQueueIdx = libQueue.indexOf(curId);
     }
@@ -2753,8 +2794,7 @@ document.getElementById('sortBar').addEventListener('click', (e) => {
   if (sort === 'custom' && libSortMode !== 'custom') {
     // Snapshot current visible order as starting point for custom
     const lib = loadLib();
-    let entries = Object.entries(lib);
-    if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
+    const entries = filterLibEntries(Object.entries(lib));
     const currentIds = sortLibEntries(entries).map(([id]) => id);
     // Merge: keep saved custom positions for known ids, append new ones
     const saved = customOrder.filter(id => lib[id]);
@@ -2776,6 +2816,23 @@ document.getElementById('sortBar').addEventListener('click', (e) => {
   libQueue = null;
   renderLib();
 });
+
+// Apply the text search and the favorites toggle to [id, entry] pairs
+function filterLibEntries(entries) {
+  if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
+  if (libFavOnly) entries = entries.filter(([, s]) => !!s.favorite);
+  return entries;
+}
+
+function toggleFavFilter() {
+  libFavOnly = !libFavOnly;
+  const btn = document.getElementById('libFavBtn');
+  btn.classList.toggle('on', libFavOnly);
+  btn.textContent = libFavOnly ? '★ Favorites' : '☆ Favorites';
+  btn.title = libFavOnly ? 'Show all videos' : 'Show favorites only';
+  libQueue = null;
+  renderLib();
+}
 
 // ── Render library ─────────────────────────────────────────────────────────
 function sortLibEntries(list) {
@@ -2799,10 +2856,7 @@ function renderLib() {
   const el   = document.getElementById('songs');
   const lib  = loadLib();
   const all  = Object.entries(lib);
-  const filtered = libFilter
-    ? all.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter))
-    : all;
-  const list = sortLibEntries(filtered);
+  const list = sortLibEntries(filterLibEntries(all));
 
   if (!all.length) {
     const msg = currentUser && serverLibCache === null
@@ -2823,11 +2877,12 @@ function renderLib() {
   }
   document.getElementById('libFooter').style.display = '';
   document.getElementById('sortBar').style.display = 'flex';
-  document.getElementById('libFilterBox').style.display = 'block';
+  document.getElementById('libFilterBox').style.display = 'flex';
   document.getElementById('libRefreshBtn').style.display = serverLibCache !== null ? '' : 'none';
 
   if (!list.length) {
-    el.innerHTML = `<div class="empty"><p>No matches</p></div>`;
+    const msg = libFavOnly && !libFilter ? 'No favorites yet — click ☆ on a video to add it' : 'No matches';
+    el.innerHTML = `<div class="empty"><p>${msg}</p></div>`;
     return;
   }
 
@@ -2849,6 +2904,7 @@ function renderLib() {
         <div class="song-name">${esc(s.title)}</div>
         <div class="song-date">${fmtDate(s.lastPlayedAt || s.addedAt)}</div>
       </div>
+      <button class="btn-fav ${s.favorite ? 'on' : ''}" onclick="toggleFav('${id}', event)" title="${s.favorite ? 'Remove from favorites' : 'Add to favorites'}">${s.favorite ? '★' : '☆'}</button>
       ${s.playlistId ? `<button class="btn-playlist-lib" onclick="loadPlaylistFromLib('${s.playlistId}', event)" title="Play source playlist">▶<span class="playlist-lib-label">Start playlist</span></button>` : ''}
       <div class="loop-count">
         <span class="num">${s.loops || 0}</span>
@@ -2930,6 +2986,34 @@ function loadPlaylistFromLib(listId, e) {
   loadPlaylist(listId);
 }
 
+async function toggleFav(id, e) {
+  e.stopPropagation();
+  if (serverLibCache !== null) {
+    const entry = serverLibCache[id];
+    if (!entry) return;
+    const next = !entry.favorite;
+    entry.favorite = next;            // optimistic update
+    renderLib();
+    try {
+      await api('PATCH', { videoId: id, favorite: next });
+    } catch (err) {
+      entry.favorite = !next;         // roll back
+      renderLib();
+      toast('⚠️ Failed to update favorite. Try again.');
+      return;
+    }
+    toast(next ? '★ Added to favorites' : 'Removed from favorites');
+  } else {
+    const lib = loadLib();
+    if (!lib[id]) return;
+    lib[id].favorite = !lib[id].favorite;
+    saveLib(lib);
+    renderLib();
+    toast(lib[id].favorite ? '★ Added to favorites' : 'Removed from favorites');
+  }
+  if (libFavOnly) libQueue = null;   // visible set changed → rebuild play queue
+}
+
 async function delSong(id, e) {
   e.stopPropagation();
   if (serverLibCache !== null) {
@@ -2987,6 +3071,7 @@ async function importHistory(e) {
         loopB:        entry.loopB ?? null,
         speed:        entry.speed ?? null,
         playlistId:   entry.playlistId ?? null,
+        favorite:     !!entry.favorite,
       };
 
       if (serverLibCache !== null) {
@@ -3001,6 +3086,7 @@ async function importHistory(e) {
           loopB: newEntry.loopB,
           speed: newEntry.speed,
           playlistId: newEntry.playlistId,
+          favorite: newEntry.favorite,
         });
       } else {
         lib[videoId] = newEntry;
