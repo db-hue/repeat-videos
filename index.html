@@ -1273,6 +1273,8 @@
           <button data-stars="1" onclick="setStarFilter(1)">★</button>
           <button data-stars="2" onclick="setStarFilter(2)">★★</button>
           <button data-stars="3" onclick="setStarFilter(3)">★★★</button>
+          <button data-stars="1+" onclick="setStarFilter('1+')" title="1 star or more">★+</button>
+          <button data-stars="2+" onclick="setStarFilter('2+')" title="2 stars or more">★★+</button>
         </div>
       </span>
       <span class="sort-arrow">▼</span>
@@ -1365,7 +1367,7 @@ let userPausedFromLockScreen = false; // track lock screen pause to avoid auto-r
 let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'rating' | 'custom'
 let libSortAsc     = false;     // false = descending (default), true = ascending
 let libFilter      = '';        // search filter for history
-let libStarFilter  = null;      // null = all, 0..3 = only that exact rating
+let libStarFilter  = null;      // null = all, 0..3 = only that exact rating, '1+' / '2+' = at least that many
 let customOrder    = JSON.parse(localStorage.getItem('rv_customOrder') || '[]');
 let pollTimer      = null;      // polling timer for cross-device sync
 
@@ -2930,8 +2932,18 @@ document.getElementById('sortBar').addEventListener('click', (e) => {
 // Apply the text search to [id, entry] pairs (shared by render, custom-sort snapshot and play queue)
 function filterLibEntries(entries) {
   if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
-  if (libStarFilter !== null) entries = entries.filter(([, s]) => clampRating(s.rating) === libStarFilter);
+  if (libStarFilter !== null) entries = entries.filter(([, s]) => starFilterMatches(clampRating(s.rating)));
   return entries;
+}
+
+// '1+' / '2+' = at least that many stars, numbers = exact count
+function starFilterMatches(r) {
+  if (typeof libStarFilter === 'string') return r >= parseInt(libStarFilter, 10);
+  return r === libStarFilter;
+}
+function starFilterLabel() {
+  if (typeof libStarFilter === 'string') return '★'.repeat(parseInt(libStarFilter, 10)) + '+';
+  return libStarFilter === 0 ? '☆' : '★'.repeat(libStarFilter);
 }
 
 function setStarFilter(n) {
@@ -2940,7 +2952,7 @@ function setStarFilter(n) {
     b.classList.toggle('on', (n === null ? '' : String(n)) === b.dataset.stars);
   });
   const t = document.getElementById('ratingFilterToggle');
-  t.textContent = n === null ? '▾' : (n === 0 ? '☆' : '★'.repeat(n)) + ' ▾';
+  t.textContent = n === null ? '▾' : starFilterLabel() + ' ▾';
   t.classList.toggle('on', n !== null);
   document.getElementById('ratingFilter').classList.remove('open');
   libQueue = null;
@@ -3024,7 +3036,7 @@ function renderLib() {
 
   if (!list.length) {
     const msg = libStarFilter !== null && !libFilter
-      ? (libStarFilter ? `No videos rated ${'★'.repeat(libStarFilter)}` : 'No unrated videos')
+      ? (libStarFilter ? `No videos rated ${starFilterLabel()}` : 'No unrated videos')
       : 'No matches';
     el.innerHTML = `<div class="empty"><p>${msg}</p></div>`;
     return;
