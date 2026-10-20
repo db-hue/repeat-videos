@@ -729,16 +729,14 @@
     .sort-header .sh-col.active .sort-arrow { opacity: 1; }
     .sort-header .sh-title { flex-shrink: 0; }
     .sort-header .sh-counter { flex-shrink: 0; }
+    .sort-header .sh-rating { flex-shrink: 0; }
 
     .lib-filter {
       display: none;
-      gap: 8px;
-      align-items: center;
       margin-bottom: 8px;
     }
     .lib-filter input {
-      flex: 1;
-      min-width: 0;
+      width: 100%;
       background: var(--bg2);
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -751,21 +749,6 @@
     }
     .lib-filter input:focus { border-color: var(--accent); }
     .lib-filter input::placeholder { color: var(--muted); }
-    .btn-fav-filter {
-      flex-shrink: 0;
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 0.82rem;
-      font-family: inherit;
-      padding: 7px 12px;
-      white-space: nowrap;
-      transition: color 0.2s, border-color 0.2s;
-    }
-    .btn-fav-filter:hover { color: var(--text); border-color: var(--accent); }
-    .btn-fav-filter.on { color: #f5c518; border-color: #f5c518; }
     .sort-header .sh-custom { flex-shrink: 0; }
 
     .btn-move {
@@ -862,19 +845,26 @@
       transition: color 0.2s;
     }
     .btn-share-lib:hover { color: var(--accent2); }
-    .btn-fav {
-      background: none;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 1.15rem;
+    /* 0–3 star rating, laid out as a triangle: 3 on top, 1 and 2 below */
+    .rating {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
       line-height: 1;
-      padding: 4px 6px;
-      border-radius: 6px;
-      transition: color 0.2s, transform 0.15s;
+      padding: 2px 4px;
     }
-    .btn-fav:hover { color: #f5c518; transform: scale(1.15); }
-    .btn-fav.on { color: #f5c518; }
+    .rating-row { display: flex; margin-top: -3px; }
+    .rating .rs {
+      font-size: 0.9rem;
+      color: var(--muted);
+      opacity: 0.55;
+      cursor: pointer;
+      padding: 1px 1px;
+      transition: color 0.15s, opacity 0.15s, transform 0.15s;
+    }
+    .rating .rs:hover { opacity: 1; color: #f5c518; transform: scale(1.2); }
+    .rating .rs.on { color: #f5c518; opacity: 1; }
     .btn-playlist-lib {
       background: none;
       border: none;
@@ -1107,7 +1097,9 @@
       /* history rows: make room for the title next to star/counter/buttons */
       .song-row { gap: 8px; padding: 10px; }
       .thumb { width: 56px; height: 42px; }
-      .btn-fav, .btn-del, .btn-share-lib, .btn-playlist-lib { padding: 4px 2px; }
+      .btn-del, .btn-share-lib, .btn-playlist-lib { padding: 4px 2px; }
+      .rating { padding: 2px 0; }
+      .rating .rs { font-size: 0.8rem; }
       .playlist-lib-label { display: none; }
     }
   </style>
@@ -1204,12 +1196,12 @@
   </div>
   <div class="lib-filter" id="libFilterBox">
     <input type="text" id="libFilterInput" placeholder="Search by name…" autocomplete="off" />
-    <button class="btn-fav-filter" id="libFavBtn" onclick="toggleFavFilter()" title="Show favorites only">☆ Favorites</button>
   </div>
   <div class="sort-header" id="sortBar" style="display:none;">
     <div class="sh-col sh-title" data-sort="title">Name <span class="sort-arrow">▲</span></div>
     <div class="sh-col active" data-sort="recent">Date <span class="sort-arrow">▼</span></div>
     <div class="sh-col sh-counter" data-sort="most-played">Counter <span class="sort-arrow">▼</span></div>
+    <div class="sh-col sh-rating" data-sort="rating" title="Sort by star rating">★ Rating <span class="sort-arrow">▼</span></div>
     <div class="sh-col sh-custom" data-sort="custom">Custom</div>
   </div>
   <div class="songs" id="songs"></div>
@@ -1294,10 +1286,9 @@ let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
 let wasPlayingBeforeHidden = false; // resume playback after mobile browser pauses it
 let userPausedFromLockScreen = false; // track lock screen pause to avoid auto-resume conflict
-let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'custom'
+let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'rating' | 'custom'
 let libSortAsc     = false;     // false = descending (default), true = ascending
 let libFilter      = '';        // search filter for history
-let libFavOnly     = false;     // show only favorites in history
 let customOrder    = JSON.parse(localStorage.getItem('rv_customOrder') || '[]');
 let pollTimer      = null;      // polling timer for cross-device sync
 
@@ -1472,7 +1463,7 @@ async function loadLibraryFromAtlas(retries = 2) {
           loopB:   e.loopB ?? null,
           speed:   e.speed ?? null,
           playlistId: e.playlistId ?? null,
-          favorite: !!e.favorite,
+          rating: clampRating(e.rating ?? (e.favorite ? 3 : 0)),
         };
       }
       // Skip the full DOM rebuild when the 5s poll returns identical data
@@ -1518,13 +1509,14 @@ async function importFromLocalStorage() {
     const srvPlayed   = srv.lastPlayedAt || srv.addedAt || 0;
     if (localLoops > 0) patch.incLoops = localLoops;
     if (localPlayed > srvPlayed) patch.lastPlayedAt = new Date(localPlayed).toISOString();
-    if (s.favorite && !srv.favorite) patch.favorite = true;
-    if (!patch.incLoops && !patch.lastPlayedAt && !patch.favorite) continue;
+    const localRating = clampRating(s.rating ?? (s.favorite ? 3 : 0));
+    if (localRating > (srv.rating || 0)) patch.rating = localRating;
+    if (!patch.incLoops && !patch.lastPlayedAt && patch.rating === undefined) continue;
     try {
       await api('PATCH', patch);
       if (patch.incLoops) srv.loops = (srv.loops || 0) + localLoops;
       if (patch.lastPlayedAt) srv.lastPlayedAt = localPlayed;
-      if (patch.favorite) srv.favorite = true;
+      if (patch.rating !== undefined) srv.rating = patch.rating;
       merged++;
     } catch (_) {
       failed[videoId] = s;   // keep for retry
@@ -1544,13 +1536,13 @@ async function importFromLocalStorage() {
         loopB:   s.loopB ?? null,
         speed:   s.speed ?? null,
         playlistId: s.playlistId ?? null,
-        favorite: !!s.favorite,
+        rating:  clampRating(s.rating ?? (s.favorite ? 3 : 0)),
       });
       serverLibCache[videoId] = {
         title: s.title || 'Unknown', loops: s.loops || 0, addedAt: _addedAt,
         lastPlayedAt: _lastPlayed,
         loopA: s.loopA ?? null, loopB: s.loopB ?? null, speed: s.speed ?? null,
-        playlistId: s.playlistId ?? null, favorite: !!s.favorite,
+        playlistId: s.playlistId ?? null, rating: clampRating(s.rating ?? (s.favorite ? 3 : 0)),
       };
       imported++;
     } catch (_) {
@@ -2817,21 +2809,22 @@ document.getElementById('sortBar').addEventListener('click', (e) => {
   renderLib();
 });
 
-// Apply the text search and the favorites toggle to [id, entry] pairs
+// Apply the text search to [id, entry] pairs (shared by render, custom-sort snapshot and play queue)
 function filterLibEntries(entries) {
   if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
-  if (libFavOnly) entries = entries.filter(([, s]) => !!s.favorite);
   return entries;
 }
 
-function toggleFavFilter() {
-  libFavOnly = !libFavOnly;
-  const btn = document.getElementById('libFavBtn');
-  btn.classList.toggle('on', libFavOnly);
-  btn.textContent = libFavOnly ? '★ Favorites' : '☆ Favorites';
-  btn.title = libFavOnly ? 'Show all videos' : 'Show favorites only';
-  libQueue = null;
-  renderLib();
+// 0–3 star rating; anything else becomes 0
+function clampRating(v) {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? Math.max(0, Math.min(3, n)) : 0;
+}
+
+// Star triangle: 3 on top, 1 and 2 below. Click a star to set that rating; click the current one to clear.
+function ratingHtml(id, r) {
+  const star = v => `<span class="rs ${v <= r ? 'on' : ''}" onclick="setRating('${id}', ${v}, event)" title="${v} star${v > 1 ? 's' : ''}">★</span>`;
+  return `<div class="rating" title="Rating: ${r}/3">${star(3)}<div class="rating-row">${star(1)}${star(2)}</div></div>`;
 }
 
 // ── Render library ─────────────────────────────────────────────────────────
@@ -2842,6 +2835,9 @@ function sortLibEntries(list) {
       return list.sort((a, b) => dir * ((b[1].loops || 0) - (a[1].loops || 0)));
     case 'title':
       return list.sort((a, b) => dir * (a[1].title || '').localeCompare(b[1].title || ''));
+    case 'rating':
+      return list.sort((a, b) => dir * ((b[1].rating || 0) - (a[1].rating || 0))
+        || ((b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt)));
     case 'custom': {
       const idx = id => { const i = customOrder.indexOf(id); return i === -1 ? 9999 : i; };
       return list.sort((a, b) => idx(a[0]) - idx(b[0]));
@@ -2877,12 +2873,11 @@ function renderLib() {
   }
   document.getElementById('libFooter').style.display = '';
   document.getElementById('sortBar').style.display = 'flex';
-  document.getElementById('libFilterBox').style.display = 'flex';
+  document.getElementById('libFilterBox').style.display = 'block';
   document.getElementById('libRefreshBtn').style.display = serverLibCache !== null ? '' : 'none';
 
   if (!list.length) {
-    const msg = libFavOnly && !libFilter ? 'No favorites yet — click ☆ on a video to add it' : 'No matches';
-    el.innerHTML = `<div class="empty"><p>${msg}</p></div>`;
+    el.innerHTML = `<div class="empty"><p>No matches</p></div>`;
     return;
   }
 
@@ -2904,7 +2899,7 @@ function renderLib() {
         <div class="song-name">${esc(s.title)}</div>
         <div class="song-date">${fmtDate(s.lastPlayedAt || s.addedAt)}</div>
       </div>
-      <button class="btn-fav ${s.favorite ? 'on' : ''}" onclick="toggleFav('${id}', event)" title="${s.favorite ? 'Remove from favorites' : 'Add to favorites'}">${s.favorite ? '★' : '☆'}</button>
+      ${ratingHtml(id, s.rating || 0)}
       ${s.playlistId ? `<button class="btn-playlist-lib" onclick="loadPlaylistFromLib('${s.playlistId}', event)" title="Play source playlist">▶<span class="playlist-lib-label">Start playlist</span></button>` : ''}
       <div class="loop-count">
         <span class="num">${s.loops || 0}</span>
@@ -2986,32 +2981,28 @@ function loadPlaylistFromLib(listId, e) {
   loadPlaylist(listId);
 }
 
-async function toggleFav(id, e) {
+async function setRating(id, value, e) {
   e.stopPropagation();
+  const lib = loadLib();
+  const entry = lib[id];
+  if (!entry) return;
+  const prev = entry.rating || 0;
+  const next = clampRating(value) === prev ? 0 : clampRating(value);   // click current star → clear
+  entry.rating = next;                 // optimistic update (serverLibCache or local object)
+  if (serverLibCache === null) saveLib(lib);
+  if (libSortMode === 'rating') libQueue = null;   // order changed → rebuild play queue
+  renderLib();
   if (serverLibCache !== null) {
-    const entry = serverLibCache[id];
-    if (!entry) return;
-    const next = !entry.favorite;
-    entry.favorite = next;            // optimistic update
-    renderLib();
     try {
-      await api('PATCH', { videoId: id, favorite: next });
+      await api('PATCH', { videoId: id, rating: next });
     } catch (err) {
-      entry.favorite = !next;         // roll back
+      entry.rating = prev;             // roll back
       renderLib();
-      toast('⚠️ Failed to update favorite. Try again.');
+      toast('⚠️ Failed to save rating. Try again.');
       return;
     }
-    toast(next ? '★ Added to favorites' : 'Removed from favorites');
-  } else {
-    const lib = loadLib();
-    if (!lib[id]) return;
-    lib[id].favorite = !lib[id].favorite;
-    saveLib(lib);
-    renderLib();
-    toast(lib[id].favorite ? '★ Added to favorites' : 'Removed from favorites');
   }
-  if (libFavOnly) libQueue = null;   // visible set changed → rebuild play queue
+  toast(next ? `${'★'.repeat(next)} ${next}/3` : 'Rating cleared');
 }
 
 async function delSong(id, e) {
@@ -3071,7 +3062,7 @@ async function importHistory(e) {
         loopB:        entry.loopB ?? null,
         speed:        entry.speed ?? null,
         playlistId:   entry.playlistId ?? null,
-        favorite:     !!entry.favorite,
+        rating:       clampRating(entry.rating ?? (entry.favorite ? 3 : 0)),
       };
 
       if (serverLibCache !== null) {
@@ -3086,7 +3077,7 @@ async function importHistory(e) {
           loopB: newEntry.loopB,
           speed: newEntry.speed,
           playlistId: newEntry.playlistId,
-          favorite: newEntry.favorite,
+          rating: newEntry.rating,
         });
       } else {
         lib[videoId] = newEntry;
