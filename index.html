@@ -729,13 +729,18 @@
     .sort-header .sh-col.active .sort-arrow { opacity: 1; }
     .sort-header .sh-title { flex-shrink: 0; }
     .sort-header .sh-counter { flex-shrink: 0; }
+    .sort-header .sh-rating { flex-shrink: 0; }
 
     .lib-filter {
       display: none;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
       margin-bottom: 8px;
     }
     .lib-filter input {
-      width: 100%;
+      flex: 1 1 180px;
+      min-width: 0;
       background: var(--bg2);
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -748,6 +753,58 @@
     }
     .lib-filter input:focus { border-color: var(--accent); }
     .lib-filter input::placeholder { color: var(--muted); }
+    /* exact-star-count filter: dropdown hanging off the Rating sort column */
+    .sort-header .sh-rating { position: relative; }
+    .rating-filter { position: relative; display: inline-flex; margin-left: 2px; }
+    .rf-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.68rem;
+      line-height: 1;
+      padding: 2px 4px;
+      white-space: nowrap;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .rf-toggle:hover { color: var(--text); border-color: var(--muted); }
+    .rf-toggle.on { color: #f5c518; border-color: #f5c518; }
+    .rf-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      z-index: 30;
+      min-width: 96px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px;
+      box-shadow: 0 6px 18px rgba(0,0,0,.35);
+      flex-direction: column;
+      gap: 2px;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .rating-filter.open .rf-menu { display: flex; }
+    .rf-menu button {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.82rem;
+      line-height: 1;
+      padding: 7px 10px;
+      text-align: left;
+      white-space: nowrap;
+      transition: color 0.15s, background 0.15s;
+    }
+    .rf-menu button:hover { color: var(--text); background: rgba(255,255,255,.06); }
+    .rf-menu button.on { color: #f5c518; border-color: #f5c518; }
     .sort-header .sh-custom { flex-shrink: 0; }
 
     .btn-move {
@@ -844,6 +901,31 @@
       transition: color 0.2s;
     }
     .btn-share-lib:hover { color: var(--accent2); }
+    /* 0–3 star rating: click the area to bump by one (wraps to 0).
+       0 = one empty star, 1 = one star, 2 = two in a row, 3 = triangle (one on top, two below) */
+    .rating {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      min-width: 36px;
+      min-height: 32px;
+      line-height: 1;
+      padding: 2px 4px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .rating:hover { background: rgba(245, 197, 24, 0.12); }
+    .rating-row { display: flex; }
+    .rating .rs + .rating-row { margin-top: -3px; }
+    .rating .rs {
+      font-size: 0.9rem;
+      color: #f5c518;
+      padding: 1px 1px;
+    }
+    .rating .rs.empty { color: var(--muted); opacity: 0.55; }
     .btn-playlist-lib {
       background: none;
       border: none;
@@ -1042,6 +1124,8 @@
 
     /* ── Responsive ── */
     @media (max-width: 580px) {
+      .sort-header { gap: 7px; padding: 6px 12px; }
+      .sort-header .sh-col { font-size: 0.68rem; letter-spacing: 0.02em; }
       header { gap: 10px; padding: 12px 16px; }
       .tagline { display: none; }
       .logo { font-size: 1.3rem; }
@@ -1073,6 +1157,13 @@
       .speed-ctl button { flex: 1; padding: 9px 4px; }
       .btn-share, .btn-download { flex: 1 1 28%; order: 2; }
       .btn-share { margin-left: 0; }
+      /* history rows: make room for the title next to star/counter/buttons */
+      .song-row { gap: 8px; padding: 10px; }
+      .thumb { width: 56px; height: 42px; }
+      .btn-del, .btn-share-lib, .btn-playlist-lib { padding: 4px 2px; }
+      .rating { padding: 2px 0; }
+      .rating .rs { font-size: 0.8rem; }
+      .playlist-lib-label { display: none; }
     }
   </style>
 </head>
@@ -1091,7 +1182,7 @@
   <!-- URL Input -->
   <div class="input-row">
     <input id="urlInput" class="url-input"
-           placeholder="Paste a YouTube URL or video ID and press Enter…"
+           placeholder="Paste a YouTube URL, video ID, or type a search and press Enter…"
            autocomplete="off" spellcheck="false" />
     <button class="btn-primary" id="playBtn">▶ Play</button>
   </div>
@@ -1173,6 +1264,21 @@
     <div class="sh-col sh-title" data-sort="title">Name <span class="sort-arrow">▲</span></div>
     <div class="sh-col active" data-sort="recent">Date <span class="sort-arrow">▼</span></div>
     <div class="sh-col sh-counter" data-sort="most-played">Counter <span class="sort-arrow">▼</span></div>
+    <div class="sh-col sh-rating" data-sort="rating" title="Sort by star rating">★ Rating
+      <span class="rating-filter" id="ratingFilter">
+        <button class="rf-toggle" id="ratingFilterToggle" onclick="toggleRatingMenu(event)" title="Show only videos with this rating">▾</button>
+        <div class="rf-menu" id="ratingMenu">
+          <button class="on" data-stars="" onclick="setStarFilter(null)">All</button>
+          <button data-stars="0" onclick="setStarFilter(0)">☆ none</button>
+          <button data-stars="1" onclick="setStarFilter(1)">★</button>
+          <button data-stars="2" onclick="setStarFilter(2)">★★</button>
+          <button data-stars="3" onclick="setStarFilter(3)">★★★</button>
+          <button data-stars="1+" onclick="setStarFilter('1+')" title="1 star or more">★+</button>
+          <button data-stars="2+" onclick="setStarFilter('2+')" title="2 stars or more">★★+</button>
+        </div>
+      </span>
+      <span class="sort-arrow">▼</span>
+    </div>
     <div class="sh-col sh-custom" data-sort="custom">Custom</div>
   </div>
   <div class="songs" id="songs"></div>
@@ -1217,6 +1323,7 @@ const AUTH0_DOMAIN    = 'dev-wi0i54wuxsdja4bg.us.auth0.com';
 const AUTH0_CLIENT_ID = 'vDsFCK6wEV1dGfqJQG3lllFGP0umQ2NJ';
 const API_AUDIENCE    = 'https://api.repeat-videos.com';
 const API_URL         = '/.netlify/functions/library';
+const SEARCH_API_URL  = '/.netlify/functions/search';
 const ADMIN_API_URL   = '/.netlify/functions/admin';
 // Admin audio download runs on the MF-N home server (Tailscale Funnel), NOT
 // as a Netlify function: YouTube bot-walls all player clients from datacenter
@@ -1257,9 +1364,10 @@ let plTitleCache   = {};        // {videoId: title}
 let plBuilt        = false;     // whether we've already built the panel for the current playlist
 let wasPlayingBeforeHidden = false; // resume playback after mobile browser pauses it
 let userPausedFromLockScreen = false; // track lock screen pause to avoid auto-resume conflict
-let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'custom'
+let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'rating' | 'custom'
 let libSortAsc     = false;     // false = descending (default), true = ascending
 let libFilter      = '';        // search filter for history
+let libStarFilter  = null;      // null = all, 0..3 = only that exact rating, '1+' / '2+' = at least that many
 let customOrder    = JSON.parse(localStorage.getItem('rv_customOrder') || '[]');
 let pollTimer      = null;      // polling timer for cross-device sync
 
@@ -1434,6 +1542,7 @@ async function loadLibraryFromAtlas(retries = 2) {
           loopB:   e.loopB ?? null,
           speed:   e.speed ?? null,
           playlistId: e.playlistId ?? null,
+          rating: clampRating(e.rating ?? (e.favorite ? 3 : 0)),
         };
       }
       // Skip the full DOM rebuild when the 5s poll returns identical data
@@ -1479,11 +1588,14 @@ async function importFromLocalStorage() {
     const srvPlayed   = srv.lastPlayedAt || srv.addedAt || 0;
     if (localLoops > 0) patch.incLoops = localLoops;
     if (localPlayed > srvPlayed) patch.lastPlayedAt = new Date(localPlayed).toISOString();
-    if (!patch.incLoops && !patch.lastPlayedAt) continue;
+    const localRating = clampRating(s.rating ?? (s.favorite ? 3 : 0));
+    if (localRating > (srv.rating || 0)) patch.rating = localRating;
+    if (!patch.incLoops && !patch.lastPlayedAt && patch.rating === undefined) continue;
     try {
       await api('PATCH', patch);
       if (patch.incLoops) srv.loops = (srv.loops || 0) + localLoops;
       if (patch.lastPlayedAt) srv.lastPlayedAt = localPlayed;
+      if (patch.rating !== undefined) srv.rating = patch.rating;
       merged++;
     } catch (_) {
       failed[videoId] = s;   // keep for retry
@@ -1503,12 +1615,13 @@ async function importFromLocalStorage() {
         loopB:   s.loopB ?? null,
         speed:   s.speed ?? null,
         playlistId: s.playlistId ?? null,
+        rating:  clampRating(s.rating ?? (s.favorite ? 3 : 0)),
       });
       serverLibCache[videoId] = {
         title: s.title || 'Unknown', loops: s.loops || 0, addedAt: _addedAt,
         lastPlayedAt: _lastPlayed,
         loopA: s.loopA ?? null, loopB: s.loopB ?? null, speed: s.speed ?? null,
-        playlistId: s.playlistId ?? null,
+        playlistId: s.playlistId ?? null, rating: clampRating(s.rating ?? (s.favorite ? 3 : 0)),
       };
       imported++;
     } catch (_) {
@@ -2170,8 +2283,7 @@ function advanceToNext() {
     // Play next song from library queue (respects current sort + filter)
     if (!libQueue) {
       const lib = loadLib();
-      let entries = Object.entries(lib);
-      if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
+      const entries = filterLibEntries(Object.entries(lib));
       libQueue = sortLibEntries(entries).map(([id]) => id);
       libQueueIdx = libQueue.indexOf(curId);
     }
@@ -2511,7 +2623,12 @@ function handlePlay() {
   const listId = extractPlaylistId(raw);
   const vidId  = extractId(raw);
 
-  if (!listId && !vidId) { toast('⚠️ Could not find a YouTube video or playlist URL'); return; }
+  if (!listId && !vidId) {
+    // Not a URL or ID: treat the text as a YouTube search and play the best match
+    if (raw.length < 2) { toast('⚠️ Type a YouTube URL, a video ID, or a search'); return; }
+    searchAndPlay(raw);
+    return;
+  }
   document.getElementById('urlInput').value = '';
 
   if (listId && vidId) {
@@ -2536,6 +2653,41 @@ function handlePlay() {
     plBuilt = false;
     plTracks = [];
     playVideo(vidId);
+  }
+}
+
+// Free-text search: the search function returns the most-viewed video among
+// the top relevance hits (so a vague or misspelled title still lands on the
+// canonical upload). Plays it like a pasted URL would.
+let searchBusy = false;
+async function searchAndPlay(q) {
+  if (searchBusy) return;
+  searchBusy = true;
+  const btn = document.getElementById('playBtn');
+  const btnLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '🔍 Searching…';
+  try {
+    const res = await fetch(SEARCH_API_URL + '?q=' + encodeURIComponent(q));
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 404 || (res.ok && !data.picked)) { toast(`😕 No YouTube video found for "${q}"`); return; }
+    if (!res.ok) throw new Error(data.error || `search ${res.status}`);
+    document.getElementById('urlInput').value = '';
+    currentPlaylistId = null;
+    playlistMode      = false;
+    updatePlaylistBtn();
+    hidePlaylistPanel();
+    plBuilt = false;
+    plTracks = [];
+    toast(`▶ ${data.picked.title}`);
+    playVideo(data.picked.id);
+  } catch (err) {
+    console.error('search failed:', err);
+    toast('⚠️ Search failed — try again or paste a YouTube link');
+  } finally {
+    searchBusy = false;
+    btn.disabled = false;
+    btn.textContent = btnLabel;
   }
 }
 
@@ -2747,14 +2899,14 @@ document.getElementById('libFilterInput').addEventListener('input', (e) => {
 
 // ── Sort header ─────────────────────────────────────────────────────────────
 document.getElementById('sortBar').addEventListener('click', (e) => {
+  if (e.target.closest('.rating-filter')) return;   // dropdown clicks never change the sort
   const col = e.target.closest('.sh-col[data-sort]');
   if (!col) return;
   const sort = col.dataset.sort;
   if (sort === 'custom' && libSortMode !== 'custom') {
     // Snapshot current visible order as starting point for custom
     const lib = loadLib();
-    let entries = Object.entries(lib);
-    if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
+    const entries = filterLibEntries(Object.entries(lib));
     const currentIds = sortLibEntries(entries).map(([id]) => id);
     // Merge: keep saved custom positions for known ids, append new ones
     const saved = customOrder.filter(id => lib[id]);
@@ -2777,6 +2929,62 @@ document.getElementById('sortBar').addEventListener('click', (e) => {
   renderLib();
 });
 
+// Apply the text search to [id, entry] pairs (shared by render, custom-sort snapshot and play queue)
+function filterLibEntries(entries) {
+  if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
+  if (libStarFilter !== null) entries = entries.filter(([, s]) => starFilterMatches(clampRating(s.rating)));
+  return entries;
+}
+
+// '1+' / '2+' = at least that many stars, numbers = exact count
+function starFilterMatches(r) {
+  if (typeof libStarFilter === 'string') return r >= parseInt(libStarFilter, 10);
+  return r === libStarFilter;
+}
+function starFilterLabel() {
+  if (typeof libStarFilter === 'string') return '★'.repeat(parseInt(libStarFilter, 10)) + '+';
+  return libStarFilter === 0 ? '☆' : '★'.repeat(libStarFilter);
+}
+
+function setStarFilter(n) {
+  libStarFilter = n;
+  document.querySelectorAll('#ratingMenu button').forEach(b => {
+    b.classList.toggle('on', (n === null ? '' : String(n)) === b.dataset.stars);
+  });
+  const t = document.getElementById('ratingFilterToggle');
+  t.textContent = n === null ? '▾' : starFilterLabel() + ' ▾';
+  t.classList.toggle('on', n !== null);
+  document.getElementById('ratingFilter').classList.remove('open');
+  libQueue = null;
+  renderLib();
+}
+
+function toggleRatingMenu(e) {
+  e.stopPropagation();
+  document.getElementById('ratingFilter').classList.toggle('open');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#ratingFilter')) document.getElementById('ratingFilter').classList.remove('open');
+});
+
+// 0–3 star rating; anything else becomes 0
+function clampRating(v) {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? Math.max(0, Math.min(3, n)) : 0;
+}
+
+// Only the earned stars are drawn: 0 = empty star, 1 = one, 2 = two in a row,
+// 3 = triangle (one on top, two below). Clicking the area bumps the rating by one, 3 wraps to 0.
+function ratingHtml(id, r) {
+  const star = '<span class="rs">★</span>';
+  let inner;
+  if (r <= 0)      inner = '<span class="rs empty">☆</span>';
+  else if (r === 1) inner = star;
+  else if (r === 2) inner = `<div class="rating-row">${star}${star}</div>`;
+  else              inner = `${star}<div class="rating-row">${star}${star}</div>`;
+  return `<div class="rating" onclick="bumpRating('${id}', event)" title="Rating ${r}/3 — click to change">${inner}</div>`;
+}
+
 // ── Render library ─────────────────────────────────────────────────────────
 function sortLibEntries(list) {
   const dir = libSortAsc ? -1 : 1;
@@ -2785,6 +2993,9 @@ function sortLibEntries(list) {
       return list.sort((a, b) => dir * ((b[1].loops || 0) - (a[1].loops || 0)));
     case 'title':
       return list.sort((a, b) => dir * (a[1].title || '').localeCompare(b[1].title || ''));
+    case 'rating':
+      return list.sort((a, b) => dir * ((b[1].rating || 0) - (a[1].rating || 0))
+        || ((b[1].lastPlayedAt || b[1].addedAt) - (a[1].lastPlayedAt || a[1].addedAt)));
     case 'custom': {
       const idx = id => { const i = customOrder.indexOf(id); return i === -1 ? 9999 : i; };
       return list.sort((a, b) => idx(a[0]) - idx(b[0]));
@@ -2799,10 +3010,7 @@ function renderLib() {
   const el   = document.getElementById('songs');
   const lib  = loadLib();
   const all  = Object.entries(lib);
-  const filtered = libFilter
-    ? all.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter))
-    : all;
-  const list = sortLibEntries(filtered);
+  const list = sortLibEntries(filterLibEntries(all));
 
   if (!all.length) {
     const msg = currentUser && serverLibCache === null
@@ -2823,11 +3031,14 @@ function renderLib() {
   }
   document.getElementById('libFooter').style.display = '';
   document.getElementById('sortBar').style.display = 'flex';
-  document.getElementById('libFilterBox').style.display = 'block';
+  document.getElementById('libFilterBox').style.display = 'flex';
   document.getElementById('libRefreshBtn').style.display = serverLibCache !== null ? '' : 'none';
 
   if (!list.length) {
-    el.innerHTML = `<div class="empty"><p>No matches</p></div>`;
+    const msg = libStarFilter !== null && !libFilter
+      ? (libStarFilter ? `No videos rated ${starFilterLabel()}` : 'No unrated videos')
+      : 'No matches';
+    el.innerHTML = `<div class="empty"><p>${msg}</p></div>`;
     return;
   }
 
@@ -2849,6 +3060,7 @@ function renderLib() {
         <div class="song-name">${esc(s.title)}</div>
         <div class="song-date">${fmtDate(s.lastPlayedAt || s.addedAt)}</div>
       </div>
+      ${ratingHtml(id, s.rating || 0)}
       ${s.playlistId ? `<button class="btn-playlist-lib" onclick="loadPlaylistFromLib('${s.playlistId}', event)" title="Play source playlist">▶<span class="playlist-lib-label">Start playlist</span></button>` : ''}
       <div class="loop-count">
         <span class="num">${s.loops || 0}</span>
@@ -2930,6 +3142,30 @@ function loadPlaylistFromLib(listId, e) {
   loadPlaylist(listId);
 }
 
+async function bumpRating(id, e) {
+  e.stopPropagation();
+  const lib = loadLib();
+  const entry = lib[id];
+  if (!entry) return;
+  const prev = clampRating(entry.rating);
+  const next = (prev + 1) % 4;        // 0 → 1 → 2 → 3 → 0
+  entry.rating = next;                 // optimistic update (serverLibCache or local object)
+  if (serverLibCache === null) saveLib(lib);
+  if (libSortMode === 'rating' || libStarFilter !== null) libQueue = null;   // order/visible set changed → rebuild play queue
+  renderLib();
+  if (serverLibCache !== null) {
+    try {
+      await api('PATCH', { videoId: id, rating: next });
+    } catch (err) {
+      entry.rating = prev;             // roll back
+      renderLib();
+      toast('⚠️ Failed to save rating. Try again.');
+      return;
+    }
+  }
+  toast(next ? `${'★'.repeat(next)} ${next}/3` : 'Rating cleared');
+}
+
 async function delSong(id, e) {
   e.stopPropagation();
   if (serverLibCache !== null) {
@@ -2987,6 +3223,7 @@ async function importHistory(e) {
         loopB:        entry.loopB ?? null,
         speed:        entry.speed ?? null,
         playlistId:   entry.playlistId ?? null,
+        rating:       clampRating(entry.rating ?? (entry.favorite ? 3 : 0)),
       };
 
       if (serverLibCache !== null) {
@@ -3001,6 +3238,7 @@ async function importHistory(e) {
           loopB: newEntry.loopB,
           speed: newEntry.speed,
           playlistId: newEntry.playlistId,
+          rating: newEntry.rating,
         });
       } else {
         lib[videoId] = newEntry;
