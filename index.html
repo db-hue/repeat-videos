@@ -753,28 +753,58 @@
     }
     .lib-filter input:focus { border-color: var(--accent); }
     .lib-filter input::placeholder { color: var(--muted); }
-    /* exact-star-count filter chips */
-    .star-filter {
-      display: flex;
-      gap: 4px;
-      flex-shrink: 0;
-      margin-left: auto;
-    }
-    .star-filter button {
-      background: var(--bg2);
+    /* exact-star-count filter: dropdown hanging off the Rating sort column */
+    .sort-header .sh-rating { position: relative; }
+    .rating-filter { position: relative; display: inline-flex; margin-left: 2px; }
+    .rf-toggle {
+      background: none;
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 5px;
       color: var(--muted);
       cursor: pointer;
       font-family: inherit;
-      font-size: 0.78rem;
+      font-size: 0.68rem;
       line-height: 1;
-      padding: 7px 9px;
+      padding: 2px 4px;
       white-space: nowrap;
       transition: color 0.15s, border-color 0.15s;
     }
-    .star-filter button:hover { color: var(--text); border-color: var(--accent); }
-    .star-filter button.on { color: #f5c518; border-color: #f5c518; }
+    .rf-toggle:hover { color: var(--text); border-color: var(--muted); }
+    .rf-toggle.on { color: #f5c518; border-color: #f5c518; }
+    .rf-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      z-index: 30;
+      min-width: 96px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px;
+      box-shadow: 0 6px 18px rgba(0,0,0,.35);
+      flex-direction: column;
+      gap: 2px;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .rating-filter.open .rf-menu { display: flex; }
+    .rf-menu button {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.82rem;
+      line-height: 1;
+      padding: 7px 10px;
+      text-align: left;
+      white-space: nowrap;
+      transition: color 0.15s, background 0.15s;
+    }
+    .rf-menu button:hover { color: var(--text); background: rgba(255,255,255,.06); }
+    .rf-menu button.on { color: #f5c518; border-color: #f5c518; }
     .sort-header .sh-custom { flex-shrink: 0; }
 
     .btn-move {
@@ -1094,6 +1124,8 @@
 
     /* ── Responsive ── */
     @media (max-width: 580px) {
+      .sort-header { gap: 7px; padding: 6px 12px; }
+      .sort-header .sh-col { font-size: 0.68rem; letter-spacing: 0.02em; }
       header { gap: 10px; padding: 12px 16px; }
       .tagline { display: none; }
       .logo { font-size: 1.3rem; }
@@ -1227,19 +1259,24 @@
   </div>
   <div class="lib-filter" id="libFilterBox">
     <input type="text" id="libFilterInput" placeholder="Search by name…" autocomplete="off" />
-    <div class="star-filter" id="starFilter" title="Show only videos with this rating">
-      <button class="on" data-stars="" onclick="setStarFilter(null)" title="All ratings">All</button>
-      <button data-stars="0" onclick="setStarFilter(0)" title="No stars">☆</button>
-      <button data-stars="1" onclick="setStarFilter(1)" title="1 star">★</button>
-      <button data-stars="2" onclick="setStarFilter(2)" title="2 stars">★★</button>
-      <button data-stars="3" onclick="setStarFilter(3)" title="3 stars">★★★</button>
-    </div>
   </div>
   <div class="sort-header" id="sortBar" style="display:none;">
     <div class="sh-col sh-title" data-sort="title">Name <span class="sort-arrow">▲</span></div>
     <div class="sh-col active" data-sort="recent">Date <span class="sort-arrow">▼</span></div>
     <div class="sh-col sh-counter" data-sort="most-played">Counter <span class="sort-arrow">▼</span></div>
-    <div class="sh-col sh-rating" data-sort="rating" title="Sort by star rating">★ Rating <span class="sort-arrow">▼</span></div>
+    <div class="sh-col sh-rating" data-sort="rating" title="Sort by star rating">★ Rating
+      <span class="rating-filter" id="ratingFilter">
+        <button class="rf-toggle" id="ratingFilterToggle" onclick="toggleRatingMenu(event)" title="Show only videos with this rating">▾</button>
+        <div class="rf-menu" id="ratingMenu">
+          <button class="on" data-stars="" onclick="setStarFilter(null)">All</button>
+          <button data-stars="0" onclick="setStarFilter(0)">☆ none</button>
+          <button data-stars="1" onclick="setStarFilter(1)">★</button>
+          <button data-stars="2" onclick="setStarFilter(2)">★★</button>
+          <button data-stars="3" onclick="setStarFilter(3)">★★★</button>
+        </div>
+      </span>
+      <span class="sort-arrow">▼</span>
+    </div>
     <div class="sh-col sh-custom" data-sort="custom">Custom</div>
   </div>
   <div class="songs" id="songs"></div>
@@ -2860,6 +2897,7 @@ document.getElementById('libFilterInput').addEventListener('input', (e) => {
 
 // ── Sort header ─────────────────────────────────────────────────────────────
 document.getElementById('sortBar').addEventListener('click', (e) => {
+  if (e.target.closest('.rating-filter')) return;   // dropdown clicks never change the sort
   const col = e.target.closest('.sh-col[data-sort]');
   if (!col) return;
   const sort = col.dataset.sort;
@@ -2898,12 +2936,24 @@ function filterLibEntries(entries) {
 
 function setStarFilter(n) {
   libStarFilter = n;
-  document.querySelectorAll('#starFilter button').forEach(b => {
+  document.querySelectorAll('#ratingMenu button').forEach(b => {
     b.classList.toggle('on', (n === null ? '' : String(n)) === b.dataset.stars);
   });
+  const t = document.getElementById('ratingFilterToggle');
+  t.textContent = n === null ? '▾' : (n === 0 ? '☆' : '★'.repeat(n)) + ' ▾';
+  t.classList.toggle('on', n !== null);
+  document.getElementById('ratingFilter').classList.remove('open');
   libQueue = null;
   renderLib();
 }
+
+function toggleRatingMenu(e) {
+  e.stopPropagation();
+  document.getElementById('ratingFilter').classList.toggle('open');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#ratingFilter')) document.getElementById('ratingFilter').classList.remove('open');
+});
 
 // 0–3 star rating; anything else becomes 0
 function clampRating(v) {
