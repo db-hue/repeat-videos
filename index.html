@@ -1150,7 +1150,7 @@
   <!-- URL Input -->
   <div class="input-row">
     <input id="urlInput" class="url-input"
-           placeholder="Paste a YouTube URL or video ID and press Enter…"
+           placeholder="Paste a YouTube URL, video ID, or type a search and press Enter…"
            autocomplete="off" spellcheck="false" />
     <button class="btn-primary" id="playBtn">▶ Play</button>
   </div>
@@ -1284,6 +1284,7 @@ const AUTH0_DOMAIN    = 'dev-wi0i54wuxsdja4bg.us.auth0.com';
 const AUTH0_CLIENT_ID = 'vDsFCK6wEV1dGfqJQG3lllFGP0umQ2NJ';
 const API_AUDIENCE    = 'https://api.repeat-videos.com';
 const API_URL         = '/.netlify/functions/library';
+const SEARCH_API_URL  = '/.netlify/functions/search';
 const ADMIN_API_URL   = '/.netlify/functions/admin';
 // Admin audio download runs on the MF-N home server (Tailscale Funnel), NOT
 // as a Netlify function: YouTube bot-walls all player clients from datacenter
@@ -2583,7 +2584,12 @@ function handlePlay() {
   const listId = extractPlaylistId(raw);
   const vidId  = extractId(raw);
 
-  if (!listId && !vidId) { toast('⚠️ Could not find a YouTube video or playlist URL'); return; }
+  if (!listId && !vidId) {
+    // Not a URL or ID: treat the text as a YouTube search and play the best match
+    if (raw.length < 2) { toast('⚠️ Type a YouTube URL, a video ID, or a search'); return; }
+    searchAndPlay(raw);
+    return;
+  }
   document.getElementById('urlInput').value = '';
 
   if (listId && vidId) {
@@ -2608,6 +2614,41 @@ function handlePlay() {
     plBuilt = false;
     plTracks = [];
     playVideo(vidId);
+  }
+}
+
+// Free-text search: the search function returns the most-viewed video among
+// the top relevance hits (so a vague or misspelled title still lands on the
+// canonical upload). Plays it like a pasted URL would.
+let searchBusy = false;
+async function searchAndPlay(q) {
+  if (searchBusy) return;
+  searchBusy = true;
+  const btn = document.getElementById('playBtn');
+  const btnLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '🔍 Searching…';
+  try {
+    const res = await fetch(SEARCH_API_URL + '?q=' + encodeURIComponent(q));
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 404 || (res.ok && !data.picked)) { toast(`😕 No YouTube video found for "${q}"`); return; }
+    if (!res.ok) throw new Error(data.error || `search ${res.status}`);
+    document.getElementById('urlInput').value = '';
+    currentPlaylistId = null;
+    playlistMode      = false;
+    updatePlaylistBtn();
+    hidePlaylistPanel();
+    plBuilt = false;
+    plTracks = [];
+    toast(`▶ ${data.picked.title}`);
+    playVideo(data.picked.id);
+  } catch (err) {
+    console.error('search failed:', err);
+    toast('⚠️ Search failed — try again or paste a YouTube link');
+  } finally {
+    searchBusy = false;
+    btn.disabled = false;
+    btn.textContent = btnLabel;
   }
 }
 
