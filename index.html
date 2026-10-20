@@ -733,10 +733,14 @@
 
     .lib-filter {
       display: none;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
       margin-bottom: 8px;
     }
     .lib-filter input {
-      width: 100%;
+      flex: 1 1 180px;
+      min-width: 0;
       background: var(--bg2);
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -749,6 +753,28 @@
     }
     .lib-filter input:focus { border-color: var(--accent); }
     .lib-filter input::placeholder { color: var(--muted); }
+    /* exact-star-count filter chips */
+    .star-filter {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+    .star-filter button {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.78rem;
+      line-height: 1;
+      padding: 7px 9px;
+      white-space: nowrap;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .star-filter button:hover { color: var(--text); border-color: var(--accent); }
+    .star-filter button.on { color: #f5c518; border-color: #f5c518; }
     .sort-header .sh-custom { flex-shrink: 0; }
 
     .btn-move {
@@ -1201,6 +1227,13 @@
   </div>
   <div class="lib-filter" id="libFilterBox">
     <input type="text" id="libFilterInput" placeholder="Search by name…" autocomplete="off" />
+    <div class="star-filter" id="starFilter" title="Show only videos with this rating">
+      <button class="on" data-stars="" onclick="setStarFilter(null)" title="All ratings">All</button>
+      <button data-stars="0" onclick="setStarFilter(0)" title="No stars">☆</button>
+      <button data-stars="1" onclick="setStarFilter(1)" title="1 star">★</button>
+      <button data-stars="2" onclick="setStarFilter(2)" title="2 stars">★★</button>
+      <button data-stars="3" onclick="setStarFilter(3)" title="3 stars">★★★</button>
+    </div>
   </div>
   <div class="sort-header" id="sortBar" style="display:none;">
     <div class="sh-col sh-title" data-sort="title">Name <span class="sort-arrow">▲</span></div>
@@ -1294,6 +1327,7 @@ let userPausedFromLockScreen = false; // track lock screen pause to avoid auto-r
 let libSortMode    = 'recent';  // 'recent' | 'most-played' | 'title' | 'rating' | 'custom'
 let libSortAsc     = false;     // false = descending (default), true = ascending
 let libFilter      = '';        // search filter for history
+let libStarFilter  = null;      // null = all, 0..3 = only that exact rating
 let customOrder    = JSON.parse(localStorage.getItem('rv_customOrder') || '[]');
 let pollTimer      = null;      // polling timer for cross-device sync
 
@@ -2817,7 +2851,17 @@ document.getElementById('sortBar').addEventListener('click', (e) => {
 // Apply the text search to [id, entry] pairs (shared by render, custom-sort snapshot and play queue)
 function filterLibEntries(entries) {
   if (libFilter) entries = entries.filter(([, s]) => (s.title || '').toLowerCase().includes(libFilter));
+  if (libStarFilter !== null) entries = entries.filter(([, s]) => clampRating(s.rating) === libStarFilter);
   return entries;
+}
+
+function setStarFilter(n) {
+  libStarFilter = n;
+  document.querySelectorAll('#starFilter button').forEach(b => {
+    b.classList.toggle('on', (n === null ? '' : String(n)) === b.dataset.stars);
+  });
+  libQueue = null;
+  renderLib();
 }
 
 // 0–3 star rating; anything else becomes 0
@@ -2884,11 +2928,14 @@ function renderLib() {
   }
   document.getElementById('libFooter').style.display = '';
   document.getElementById('sortBar').style.display = 'flex';
-  document.getElementById('libFilterBox').style.display = 'block';
+  document.getElementById('libFilterBox').style.display = 'flex';
   document.getElementById('libRefreshBtn').style.display = serverLibCache !== null ? '' : 'none';
 
   if (!list.length) {
-    el.innerHTML = `<div class="empty"><p>No matches</p></div>`;
+    const msg = libStarFilter !== null && !libFilter
+      ? (libStarFilter ? `No videos rated ${'★'.repeat(libStarFilter)}` : 'No unrated videos')
+      : 'No matches';
+    el.innerHTML = `<div class="empty"><p>${msg}</p></div>`;
     return;
   }
 
@@ -3001,7 +3048,7 @@ async function bumpRating(id, e) {
   const next = (prev + 1) % 4;        // 0 → 1 → 2 → 3 → 0
   entry.rating = next;                 // optimistic update (serverLibCache or local object)
   if (serverLibCache === null) saveLib(lib);
-  if (libSortMode === 'rating') libQueue = null;   // order changed → rebuild play queue
+  if (libSortMode === 'rating' || libStarFilter !== null) libQueue = null;   // order/visible set changed → rebuild play queue
   renderLib();
   if (serverLibCache !== null) {
     try {
